@@ -231,12 +231,42 @@ sweep outlier rate on top of it.
   `evaluate.py`, never inside a solver class — keeps both solver
   implementations symmetric and batching complexity in exactly one place.
 
-Open item, not yet resolved: whether PyPose's LM optimizer backpropagates via
-full unrolling through iterations or implicit differentiation (Theseus's
-paper frames implicit differentiation as its specific advance over
-unrolling-only prior work) — needs checking directly against PyPose's solver
-internals when `pypose_solver.py` is actually written, since it affects
-memory feasibility for larger K values.
+**Resolved (July 2026):** PyPose's LM (`pypose.optim.LM`) backpropagates via
+**full unrolling** — it uses `modjac` (module Jacobian via standard autograd)
+to compute `∂residuals/∂parameters` at each iteration step, and the gradient
+chain runs through every step back to the GNN outputs. This is the "prior
+work" approach Theseus's paper contrasts against its implicit-differentiation
+advance. Memory cost scales with K (number of unrolled steps), which is why
+`train.solver_train_iterations` must stay small for feasibility. For K ≤ 5
+this is manageable; for K > 20 it likely requires gradient checkpointing.
+No solver-side change is needed for Phase 0 (`edge_bce` never calls the
+solver during training); revisit memory profiling when `trajectory_loss` is
+wired in Phase 1.
+
+**PyPose has no SE(2) Lie type** (only SE3/SO3/RxSO3/Sim3 are available in
+v0.9.5). `pypose_solver.py` stores poses as plain `(N, 3)` `nn.Parameter`
+tensors and implements the SE(2) residual manually in `torch` — the LM
+optimizer treats all parameters as Euclidean-space, which is correct for
+small-angle steps (no manifold-aware retraction needed). Pose 0 is stored
+as a fixed `register_buffer` (gauge anchor); poses 1..N-1 are optimized.
+
+## Solver Adapter Implementation Notes
+
+### Cost convention mismatch
+PyPose and GTSAM use different cost conventions:
+- **PyPose** minimises `sum(||r_white||²)` where `r_white = r * sqrt(info_diag)` — the full squared whitened-residual sum.
+- **GTSAM** minimises `½ · sum(r^T Λ r)` — the standard ½-chi² convention.
+
+For diagonal information matrices (which is all Phase 0/1 uses), `pp_cost ≈ 2 × gt_cost` at convergence. This is a pure bookkeeping difference; the optimum found is the same. Confirmed empirically: relative cost disagreement is < 0.3% across all test seeds.
+
+### GNC non-composability (locked)
+`GTSAMSolver(kernel="gnc")` must **never** receive GNN-predicted `edge_weights`. GNC computes its own adaptive inlier weights internally from raw residuals — passing pre-scaled information matrices (from `scale_information(Λ, w²)`) would double-robustify the problem and confound any GNN-vs-classical comparison. A runtime `AssertionError` is raised if non-unit weights are passed to `kernel="gnc"`. This kernel should only ever be invoked in `evaluate.py`'s classical-baseline branch, on raw `edge_info`, with uniform weights.
+
+### Solver agreement criterion
+The `test_solvers.py` agreement test checks **cost equivalence**, not pose equivalence. With few loop closures (~4 in a 50-node graph), the PGO problem has near-degenerate directions: two correct backends can find different pose configurations with the same objective value (null-space non-uniqueness). Empirically confirmed on seed=0: max position discrepancy 0.17 units with < 0.3% cost difference. Pose-distance comparison would produce spurious test failures for a mathematically correct solver pair. The 2% cost threshold in `test_pypose_gtsam_agree_on_clean_graph` is conservative; tighten only if a specific rounding-error bound becomes relevant.
+
+### GTSAM GNC iteration count
+`GncGaussNewtonOptimizer` does not expose an `iterations()` method. `GTSAMSolver(kernel="gnc")` returns `num_iterations=-1` as a sentinel. Callers should treat `-1` as "unknown" and not compare it against `kernel="none"` iteration counts.
 
 ## Train / Val / Test Split Protocol
 
