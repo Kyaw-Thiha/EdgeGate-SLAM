@@ -250,3 +250,30 @@ class TestEdgeGateGNN:
             out2 = model(data)
 
         torch.testing.assert_close(out1, out2)
+
+    def test_odom_scores_are_exactly_one(self):
+        """Odometry edges must always receive confidence = 1.0 exactly.
+
+        The GNN hardcodes w_odom = 1.0 end-to-end (train and eval) — odometry
+        edges never pass through the confidence head. This test uses the minimal
+        typed graph (one odom, one LC) to directly verify that index 0 (the odom
+        edge) is exactly 1.0, not a sigmoid approximation.
+        """
+        data = _minimal_typed_graph()
+        model = EdgeGateGNN()
+        model.eval()
+
+        with torch.no_grad():
+            scores = model(data)
+
+        odom_mask = data.edge_type == 0
+        lc_mask   = data.edge_type == 1
+
+        # Odometry edge must be exactly 1.0 (set by torch.ones, not by sigmoid)
+        assert scores[odom_mask].eq(1.0).all(), (
+            f"odom scores should be 1.0, got {scores[odom_mask].tolist()}"
+        )
+
+        # LC edge should be a sigmoid output in (0, 1) — not exactly 1.0
+        lc_val = scores[lc_mask].item()
+        assert 0.0 <= lc_val <= 1.0, f"LC score {lc_val} out of [0, 1]"

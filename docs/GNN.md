@@ -55,7 +55,7 @@ Each edge's message is `W_{type} · concat(x_j, edge_attr)`, where
   source of uncertainty (hypernetwork capacity/init) while the rest of the
   pipeline is still being validated — see §4, Ablation A.
 
-### 2.2 Confidence head — **node embeddings + re-injected edge features + edge-type one-hot**
+### 2.2 Confidence head — **node embeddings + re-injected edge features + edge-type one-hot, loop-closure edges only**
 
 After `L` rounds of message passing, edge `(i→j)`'s confidence score is:
 
@@ -78,6 +78,23 @@ confidence = sigmoid(MLP(head_input))   # MLP: Linear -> ReLU -> Linear -> 1
 - `h_i` and `h_j` are concatenated in directed order, not pooled
   symmetrically (`h_i + h_j`), because the measurement itself is directional
   (i→j) — this is an intentional match to that convention, not an oversight.
+
+**Decision (locked, July 2026): the confidence head is only ever invoked on
+loop-closure edges.** Odometry edges receive a hardcoded `confidence = 1.0`
+that never passes through the network, at both train and eval time. This
+follows directly from `edge_bce`'s loss being masked to loop-closure edges
+(see `implementation_details.md`'s "Loss Function Design" section): the
+synthetic generator never corrupts an odometry edge, so there is no
+outlier-detection task on odometry to supervise in the first place, and
+running the head on them anyway would mean an unsupervised, effectively-
+arbitrary value silently scaling the information matrix of the graph's most
+reliable edges. Masking the loss but still computing (and using) the head's
+output on odometry would be an inconsistency between training and
+deployment; hardcoding `w_odom = 1.0` end-to-end removes it. Node embeddings
+(`h_i`, `h_j`) for odometry-adjacent nodes are still computed and still flow
+through message passing as normal — only the *confidence-head application*
+is restricted to loop-closure edges, not the representation learning
+upstream of it.
 
 ### 2.3 Residual connections — **yes, with normalization**
 
@@ -121,7 +138,7 @@ Deferred as a Phase 1+ ablation, not rejected outright.
 | `hidden_dim` | 64 | Small graphs, synthetic-data-first regime — no evidence yet that more capacity is needed. Sweep candidate `{32, 64, 128}` if Phase 1 budget allows, but not a Phase 0 blocker. |
 | `dropout` | 0.1–0.2 | Applied inside the message MLP and the confidence head only — never on raw aggregation, since dropping aggregated signal (as opposed to learned-weight signal) would directly corrupt the very information the solver depends on. |
 | `aggr` | `"add"` (sum) | Standard MPNN choice; matches the `MessagePassing` base class default already committed to in the stub. Kept as-is for Phase 0 — see §4, Ablation B for why sum-aggregation itself is a live candidate for revision. |
-| Confidence head shape | `Linear(3·hidden_dim + edge_attr_embed_dim + 2 → hidden_dim) → ReLU → Linear(hidden_dim → 1) → sigmoid` | `3·hidden_dim` from `concat(h_i, h_j, edge_attr_embed)`; `+2` from the `onehot(edge_type)` re-injection (§2.2). Sigmoid because the confidence score is defined project-wide as `[0,1]` (see `architecture.md` §"Core Architectural Decisions" #1 and `implementation_details.md`'s edge-weight → information-matrix convention). |
+| Confidence head shape | `Linear(3·hidden_dim + edge_attr_embed_dim + 2 → hidden_dim) → ReLU → Linear(hidden_dim → 1) → sigmoid`, **invoked on loop-closure edges only** | `3·hidden_dim` from `concat(h_i, h_j, edge_attr_embed)`; `+2` from the `onehot(edge_type)` re-injection (§2.2). Sigmoid because the confidence score is defined project-wide as `[0,1]` (see `architecture.md` §"Core Architectural Decisions" #1 and `implementation_details.md`'s edge-weight → information-matrix convention). Odometry edges get a hardcoded `w=1.0` instead — see §2.2. |
 | Normalization | `GraphNorm` (or `LayerNorm` if `GraphNorm` proves unstable in practice) | Counteracts the ~5x fixed information-matrix scale mismatch between edge types (§2.3). Exact choice between the two left to empirical check during implementation — not a design-level decision worth locking prematurely. |
 | Weight init | PyTorch default (Kaiming/He, via `nn.Linear` defaults) | No project-specific reason yet to deviate from standard practice. |
 

@@ -206,4 +206,5 @@ def generate(
         edge_info=edge_info,
         edge_type=edge_type,
         edge_label=edge_label,
+        gt_node_poses=gt_poses,  # noise-free trajectory; same frame as node_init
     )
