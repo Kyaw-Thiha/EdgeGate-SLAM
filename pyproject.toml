@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "edgegate-slam"
+version = "0.1.0"
+description = "GNN-based per-edge inlier confidence for pose-graph SLAM"
+requires-python = ">=3.11"
+
+[tool.hatch.build.targets.wheel]
+packages = ["edgegate"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
