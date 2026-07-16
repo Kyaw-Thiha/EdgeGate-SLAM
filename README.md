@@ -37,8 +37,23 @@ pixi run download-benchmarks
 # Train (uses default gpu env)
 pixi run train
 
-# Evaluate — GNN vs. classical baselines (GNC, DCS, switchable constraints)
+# Evaluate — GNN vs. classical baselines (GNC, DCS)
 pixi run evaluate
+
+# Evaluate with specific method
+pixi run evaluate eval_method=learned  eval_mode.checkpoint_path=model_best.pt
+pixi run evaluate eval_method=uniform
+pixi run evaluate eval_method=gnc
+pixi run evaluate eval_method=dcs
+
+# Evaluate on synthetic test graphs (separate seed from training)
+pixi run evaluate eval_mode.num_test_graphs=20 eval_mode.test_seed=999
+
+# Evaluate on real benchmark (requires .g2o file in data/raw/)
+pixi run evaluate eval_mode.dataset=intel eval_mode.inject_outliers=true
+
+# Aggregate sweep results into comparison table
+pixi run evaluate eval_mode=aggregate eval_mode.sweep_glob="runs/sweep_*"
 
 # Visualize a past run with Rerun
 pixi run demo-rerun

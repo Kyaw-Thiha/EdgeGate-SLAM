@@ -28,13 +28,20 @@ class GTSAMSolver(Solver):
                    GNC computes its own robust weights internally — do NOT pass
                    GNN-predicted edge_weights (would double-robustify and confound
                    any GNN-vs-classical comparison). Asserted at runtime.
+    kernel="dcs":  Dynamic Covariance Scaling (Agarwal et al., ICRA 2013).
+                   Wraps each loop-closure factor's noise model with a DCS robust
+                   kernel, then runs plain LM. DCS computes its own scaling
+                   internally — same non-unit-weights guard as GNC.
     """
 
     _PRIOR_SIGMA = 1e-6  # tight prior on pose 0 to fix gauge freedom
 
-    def __init__(self, kernel: str = "none") -> None:
-        assert kernel in ("none", "gnc"), f"kernel must be 'none' or 'gnc', got {kernel!r}"
+    def __init__(self, kernel: str = "none", dcs_param: float = 1.0) -> None:
+        assert kernel in ("none", "gnc", "dcs"), (
+            f"kernel must be 'none', 'gnc', or 'dcs', got {kernel!r}"
+        )
         self.kernel = kernel
+        self.dcs_param = dcs_param
 
     def solve(
         self,
@@ -42,9 +49,9 @@ class GTSAMSolver(Solver):
         edge_weights: torch.Tensor,
         max_iterations: int | None = None,
     ) -> tuple[torch.Tensor, bool, int, float]:
-        if self.kernel == "gnc":
+        if self.kernel in ("gnc", "dcs"):
             assert torch.allclose(edge_weights, torch.ones_like(edge_weights)), (
-                "kernel='gnc' computes its own weights internally; "
+                f"kernel='{self.kernel}' computes its own weights internally; "
                 "do not pass GNN-predicted edge_weights (would double-robustify)."
             )
 
@@ -76,12 +83,17 @@ class GTSAMSolver(Solver):
             dx, dy, dtheta = graph.edge_measurement[e]
             info_mat = _upper_tri_to_full(info_scaled[e])
             noise = gtsam.noiseModel.Gaussian.Information(info_mat)
+            if self.kernel == "dcs" and graph.edge_type[e] == 1:
+                noise = gtsam.noiseModel.Robust.Create(
+                    gtsam.noiseModel.mEstimator.DCS.Create(self.dcs_param),
+                    noise,
+                )
             fg.add(gtsam.BetweenFactorPose2(
                 i, j, gtsam.Pose2(float(dx), float(dy), float(dtheta)), noise
             ))
 
         # ── Optimize ──────────────────────────────────────────────────────────
-        if self.kernel == "none":
+        if self.kernel in ("none", "dcs"):
             params = gtsam.LevenbergMarquardtParams()
             params.setMaxIterations(max_iter)
             optimizer = gtsam.LevenbergMarquardtOptimizer(fg, initial, params)

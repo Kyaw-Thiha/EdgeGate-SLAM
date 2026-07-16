@@ -1,0 +1,9 @@
+# Classical baseline: Dynamic Covariance Scaling (DCS) via GTSAM.
+# DCS wraps loop-closure factors with a robust kernel and uses plain LM.
+# Computes its own scaling internally — same unit-weight guard as GNC.
+
+method: dcs
+
+solver:
+  _target_: edgegate.solvers.gtsam_solver.GTSAMSolver
+  kernel: dcs

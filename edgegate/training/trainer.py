@@ -15,8 +15,8 @@ from edgegate.data.graph_builder import to_pyg
 from edgegate.data.synthetic_generator import generate
 from edgegate.losses.edge_bce import EdgeBCELoss
 from edgegate.losses.trajectory_loss import TrajectoryLoss
-from edgegate.metrics.ate_rmse import ate_rmse
 from edgegate.solvers.base import Solver
+from edgegate.training.evaluate import evaluate_one_graph, accumulate_metrics
 
 
 def _set_seed(seed: int) -> None:
@@ -134,43 +134,13 @@ def _train_epoch(model, losses, optimizer, train_graphs, cfg):
 
 
 def _validate(model, solver, val_graphs, cfg):
-    model.eval()
-    tp = fp = fn = 0
-    ate_sum = 0.0
-    n_ate = 0
+    results = [evaluate_one_graph(model, solver, g) for g in val_graphs]
+    agg = accumulate_metrics(results)
 
-    with torch.no_grad():
-        for graph in val_graphs:
-            data = to_pyg(graph)
-            conf = model(data)
-
-            lc_mask = data.edge_type == 1
-            pred = conf[lc_mask] >= 0.5
-            label = data.edge_label[lc_mask] >= 0.5
-            tp += int((pred & label).sum().item())
-            fp += int((pred & ~label).sum().item())
-            fn += int((~pred & label).sum().item())
-
-            if graph.gt_node_poses is not None:
-                gt = torch.from_numpy(graph.gt_node_poses).float()
-                poses, converged, iters, cost = solver.solve(
-                    graph, conf, max_iterations=None
-                )
-                ate_val = ate_rmse(poses, gt)
-                ate_sum += ate_val
-                n_ate += 1
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-    f1 = (
-        2.0 * precision * recall / (precision + recall)
-        if (precision + recall) > 0
-        else 0.0
-    )
-
-    metrics = {"val_f1": f1, "tp": tp, "fp": fp, "fn": fn}
-    if n_ate > 0:
-        metrics["val_ate"] = ate_sum / n_ate
+    metrics = {"val_f1": agg["f1"] if agg["f1"] is not None else 0.0,
+               "tp": agg["tp"], "fp": agg["fp"], "fn": agg["fn"]}
+    if agg["ate"] is not None:
+        metrics["val_ate"] = agg["ate"]
     return metrics
 
 

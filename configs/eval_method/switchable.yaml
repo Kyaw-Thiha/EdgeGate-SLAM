@@ -1,0 +1,11 @@
+# Classical baseline: Switchable Constraints (Vertigo reimplementation).
+# NOT YET IMPLEMENTED — Vertigo targets GTSAM 2.0 (pre-rewrite, incompatible
+# with GTSAM 4.x). Requires custom factor-graph construction with per-loop-closure
+# switch variables + priors (~60-80 lines of GTSAM code).
+# See docs/implementation_details.md §"Future Work" for the deferred plan.
+
+method: switchable
+
+solver:
+  _target_: edgegate.solvers.gtsam_solver.GTSAMSolver
+  kernel: switchable   # will raise NotImplementedError

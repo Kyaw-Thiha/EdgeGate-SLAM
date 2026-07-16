@@ -1,0 +1,4 @@
+# Classical baseline: uniform edge weights (all edges get confidence=1.0).
+# Use with solver=pypose or solver=gtsam kernel=none.
+
+method: uniform

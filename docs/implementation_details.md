@@ -484,7 +484,13 @@ Switchable constraints specifically: its reference implementation (Vertigo)
 targets `gtsam 2.0`, an old pre-rewrite version incompatible with current
 GTSAM (4.2/4.3) — plan to reimplement the switch-variable logic directly as a
 GTSAM custom factor rather than trying to get the original Vertigo code
-running.
+running. **Deferred to follow-up (July 2026):** the `configs/eval/method/switchable.yaml`
+config exists as a stub raising `NotImplementedError` with a pointer here.
+GNC and DCS are the classical baselines available in Phase 0. Reimplementing
+switchable constraints requires constructing a custom factor graph with one
+switch variable per loop-closure edge plus a prior on each switch, and
+running an alternating optimisation schedule (LM on poses / closed-form
+switch update). See §"Future Work" for the deferred item.
 
 ## Reproducibility / Seeding
 
@@ -639,3 +645,13 @@ re-decided by accident later.
   layers (full mutable-edge-state MPNN). All four require only
   `layers.py`/`edgegate_gnn.py` changes and go through the existing
   `evaluate.py` harness unchanged.
+- **Switchable constraints (Vertigo reimplementation).** Deferred out of
+  Phase 0 (see §"Baseline Integration in `evaluate.py`"). The reference
+  Vertigo implementation targets GTSAM 2.0 (pre-rewrite, incompatible
+  with GTSAM 4.x). Reimplementing it requires constructing a custom factor
+  graph with per-loop-closure switch variables + priors and an alternating
+  optimisation schedule (LM on poses, closed-form switch update) —
+  estimating ~60–80 lines of GTSAM factor-graph construction. The
+  `configs/eval/method/switchable.yaml` stub raises `NotImplementedError`
+  pointing here. GNC and DCS are the classical baselines available in
+  Phase 0/1.

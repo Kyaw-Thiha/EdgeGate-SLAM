@@ -1,0 +1,10 @@
+# Classical baseline: Graduated Non-Convexity (GNC) via GTSAM.
+# GNC computes its own robust weights internally — the solver
+# assertion guards against passing non-unit edge_weights.
+
+method: gnc
+
+# Override root solver defaults.
+solver:
+  _target_: edgegate.solvers.gtsam_solver.GTSAMSolver
+  kernel: gnc

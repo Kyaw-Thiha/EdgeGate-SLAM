@@ -1,0 +1,5 @@
+# M3500 benchmark (simulated, ships with ground truth trajectory).
+# Both F1 (with injected outliers) and true ATE are reportable.
+
+dataset: m3500
+path: data/raw/M3500.g2o

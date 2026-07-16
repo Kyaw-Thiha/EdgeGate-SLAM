@@ -224,7 +224,8 @@ iterated on without touching checkpointing, training-loop code, or the head.
 
 ### 5. `evaluate.py` treats learned and classical methods uniformly
 
-Classical baselines (GNC, DCS, switchable constraints via GTSAM) don't need a
+Classical baselines (GNC and DCS via GTSAM; switchable constraints is planned but
+deferred — see `implementation_details.md` §"Future Work") don't need a
 GNN or training — they run directly on a `PoseGraph`. `evaluate.py` has one
 evaluation path that both "GNN + solver" and "classical kernel alone" go
 through, so comparisons use identical graphs, metrics, and seeds rather than

@@ -1,0 +1,5 @@
+# Sphere2500 benchmark (simulated, ships with ground truth trajectory).
+# Both F1 (with injected outliers) and true ATE are reportable.
+
+dataset: sphere2500
+path: data/raw/sphere2500.g2o

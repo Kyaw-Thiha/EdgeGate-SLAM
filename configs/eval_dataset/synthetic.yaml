@@ -1,0 +1,8 @@
+# Synthetic test dataset — fresh graphs generated with a separate test seed.
+
+dataset: synthetic
+
+# Override the data generation seed with the eval-specific test seed.
+# (Hydra resolves ${eval.test_seed} from the evaluate.yaml defaults.)
+data:
+  seed: ${eval.test_seed}

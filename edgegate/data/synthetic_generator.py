@@ -1,8 +1,8 @@
 from __future__ import annotations
-import warnings
 import numpy as np
 from edgegate.data.types import PoseGraph
 from edgegate.data.se2_utils import compose, inverse_compose, angle_wrap
+from edgegate.data.outlier_injection import inject_labeled_loop_closures
 
 # Fixed isotropic information matrices, upper-tri ordering [Ixx, Ixy, Ixθ, Iyy, Iyθ, Iθθ].
 # Matches standard PGO benchmark convention (e.g. Intel, M3500).
@@ -43,26 +43,6 @@ def _generate_trajectory(
             next_turn_at = int(rng.integers(max(1, segment_length // 2), segment_length + 1))
 
     return poses
-
-
-def _candidate_pairs(
-    poses: np.ndarray, min_gap: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Upper-triangular pose pairs with j - i >= min_gap and their Euclidean distances."""
-    N = len(poses)
-    ii, jj = np.triu_indices(N, k=min_gap)
-    dists = np.linalg.norm(poses[ii, :2] - poses[jj, :2], axis=-1)
-    return ii, jj, dists
-
-
-def _sample_n(
-    pairs: list[tuple[int, int]], n: int, rng: np.random.Generator
-) -> list[tuple[int, int]]:
-    if len(pairs) < n:
-        raise ValueError(f"Need {n} pairs but only {len(pairs)} candidates available. "
-                         "Try increasing num_poses or adjusting proximity/distance thresholds.")
-    idx = rng.choice(len(pairs), size=n, replace=False)
-    return [pairs[int(k)] for k in idx]
 
 
 def generate(
@@ -119,71 +99,31 @@ def generate(
     for i in range(num_poses - 1):
         node_init[i + 1] = compose(node_init[i], odom_meas[i])
 
-    # ── 4. Candidate pairs ────────────────────────────────────────────────────
-    ii, jj, dists = _candidate_pairs(gt_poses, min_gap)
-    proximal_pairs = [(int(ii[k]), int(jj[k])) for k in np.where(dists < proximity_threshold)[0]]
-    distant_pairs  = [(int(ii[k]), int(jj[k])) for k in np.where(dists > outlier_distance_threshold)[0]]
+    # ── 4. Inject labelled loop-closure edges ────────────────────────────────
+    lc_edge_index, lc_measurements, lc_labels = inject_labeled_loop_closures(
+        reference_poses=gt_poses,
+        num_loop_closures=num_loop_closures,
+        outlier_rate=outlier_rate,
+        outlier_structure=outlier_structure,
+        rng=rng,
+        outlier_measurement=outlier_measurement,
+        outlier_offset_std=outlier_offset_std,
+        proximity_threshold=proximity_threshold,
+        outlier_distance_threshold=outlier_distance_threshold,
+        min_gap=min_gap,
+        inlier_noise_std=tuple(LC_NOISE_STD),
+    )
 
-    # ── 5. Split counts ───────────────────────────────────────────────────────
-    num_outliers = int(round(num_loop_closures * outlier_rate / 100.0))
-    num_inliers  = num_loop_closures - num_outliers
-
-    # ── 6. Sample inlier LCs from spatially-close pairs ──────────────────────
-    inlier_pairs = _sample_n(proximal_pairs, num_inliers, rng) if num_inliers > 0 else []
-
-    # ── 7. Sample outlier LCs from spatially-distant pairs ───────────────────
-    if num_outliers > 0:
-        if outlier_structure == "clustered":
-            window = max(1, int(num_poses * 0.3))
-            t0 = int(rng.integers(0, max(1, num_poses - window)))
-            windowed = [(i, j) for (i, j) in distant_pairs if t0 <= i < t0 + window]
-            if len(windowed) < num_outliers:
-                warnings.warn(
-                    f"Clustered outliers: only {len(windowed)} candidates in window "
-                    f"[{t0}, {t0 + window}); falling back to global distant pairs."
-                )
-                windowed = distant_pairs
-            outlier_pairs = _sample_n(windowed, num_outliers, rng)
-        else:
-            outlier_pairs = _sample_n(distant_pairs, num_outliers, rng)
-    else:
-        outlier_pairs = []
-
-    # ── 8. Build loop-closure edge arrays ─────────────────────────────────────
-    lc_n = num_inliers + num_outliers
-    lc_edge_index   = np.zeros((2, lc_n), dtype=np.int64)
-    lc_measurements = np.zeros((lc_n, 3))
-    lc_labels       = np.zeros(lc_n, dtype=np.float32)
-
-    for k, (i, j) in enumerate(inlier_pairs):
-        lc_edge_index[:, k] = [i, j]
-        true_meas = inverse_compose(gt_poses[i], gt_poses[j])
-        meas = true_meas + rng.normal(0.0, LC_NOISE_STD)
-        meas[2] = angle_wrap(meas[2])
-        lc_measurements[k] = meas
-        lc_labels[k] = 1.0
-
-    for k, (i, j) in enumerate(outlier_pairs):
-        idx = num_inliers + k
-        lc_edge_index[:, idx] = [i, j]
-        if outlier_measurement == "gaussian":
-            true_meas = inverse_compose(gt_poses[i], gt_poses[j])
-            meas = true_meas + rng.normal(0.0, outlier_offset_std, 3)
-        else:  # uniform — easy ablation
-            meas = rng.uniform(-np.pi, np.pi, 3)
-        meas[2] = angle_wrap(meas[2])
-        lc_measurements[idx] = meas
-        lc_labels[idx] = 0.0
-
-    # ── 9. Assemble full PoseGraph ────────────────────────────────────────────
+    # ── 5. Assemble full PoseGraph ────────────────────────────────────────────
     E_odom = num_poses - 1
+    lc_n = num_loop_closures
     E = E_odom + lc_n
 
-    edge_index      = np.zeros((2, E), dtype=np.int64)
+    edge_index       = np.zeros((2, E), dtype=np.int64)
     edge_measurement = np.zeros((E, 3))
-    edge_info       = np.zeros((E, 6))
-    edge_type       = np.zeros(E, dtype=np.int64)
-    edge_label      = np.ones(E, dtype=np.float32)  # odometry always inlier
+    edge_info        = np.zeros((E, 6))
+    edge_type        = np.zeros(E, dtype=np.int64)
+    edge_label       = np.ones(E, dtype=np.float32)  # odometry always inlier
 
     # Odometry block
     edge_index[0, :E_odom] = np.arange(num_poses - 1)

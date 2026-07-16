@@ -1,0 +1,16 @@
+# Root Hydra config for scripts/evaluate.py.
+# Flat config groups: eval_mode, eval_method, eval_dataset for clean access
+# via cfg.eval_mode, cfg.eval_method, cfg.eval_dataset.
+
+defaults:
+  - eval_mode: evaluate
+  - eval_method: learned
+  - data: synthetic
+  - model: edgegate_gnn
+  - solver: pypose
+  - logging: wandb
+  - _self_
+
+hydra:
+  job:
+    chdir: true

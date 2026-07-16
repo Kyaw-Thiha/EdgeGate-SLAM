@@ -141,6 +141,13 @@ def test_gtsam_gnc_rejects_non_unit_weights():
         GTSAMSolver(kernel="gnc").solve(g, w * 0.5)
 
 
+def test_gtsam_dcs_rejects_non_unit_weights():
+    """kernel='dcs' must assert when edge_weights != 1 (double-robustification guard)."""
+    g, w = _clean_graph()
+    with pytest.raises(AssertionError):
+        GTSAMSolver(kernel="dcs").solve(g, w * 0.5)
+
+
 def test_gtsam_gnc_accepts_unit_weights():
     g, w = _clean_graph()
     poses, converged, _, _ = GTSAMSolver(kernel="gnc").solve(g, w)
@@ -151,6 +158,23 @@ def test_gtsam_gnc_accepts_unit_weights():
 def test_gtsam_invalid_kernel_raises():
     with pytest.raises(AssertionError):
         GTSAMSolver(kernel="switchable")
+
+
+# ── DCS kernel ─────────────────────────────────────────────────────────────────
+
+def test_gtsam_dcs_shapes():
+    g, w = _clean_graph()
+    poses, converged, n_iters, cost = GTSAMSolver(kernel="dcs").solve(g, w)
+    assert poses.shape == (_NUM_POSES, 3)
+    assert isinstance(converged, bool)
+    assert isinstance(n_iters, int)
+    assert isinstance(cost, float)
+
+
+def test_gtsam_dcs_converges_on_clean_graph():
+    g, w = _clean_graph()
+    _, converged, _, _ = GTSAMSolver(kernel="dcs").solve(g, w)
+    assert converged
 
 
 # ── Solver agreement on outlier-free graphs ───────────────────────────────────

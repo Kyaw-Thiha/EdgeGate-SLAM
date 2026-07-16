@@ -1,0 +1,5 @@
+# Intel Research Lab benchmark (real robot log, no independent ground truth).
+# F1 only (with injected outliers); ATE not reportable as absolute truth.
+
+dataset: intel
+path: data/raw/intel.g2o

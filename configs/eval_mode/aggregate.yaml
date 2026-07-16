@@ -1,0 +1,11 @@
+# Post-hoc sweep aggregation mode.
+# Globs Hydra output directories, loads summary.json from each,
+# and produces a comparison table/CSV.
+
+mode: aggregate
+
+# Glob pattern for sweep output directories.
+sweep_glob: runs/sweep_*
+
+# Output CSV path (written relative to Hydra output dir if not absolute).
+output_csv: sweep_comparison.csv

@@ -1,0 +1,34 @@
+# Evaluate one method on one dataset.
+
+mode: evaluate
+
+# Which dataset to evaluate on: "synthetic" | "intel" | "m3500" | "sphere2500"
+# Override with: eval.dataset=<name>  (matches key in configs/eval/dataset/<name>.yaml)
+# For benchmarks, also override eval/dataset=<name> to load path/gt config.
+#   e.g. python scripts/evaluate.py eval.dataset=intel eval/dataset=intel
+# For synthetic, no additional dataset config is needed.
+dataset: synthetic
+
+# Checkpoint path (required only when method=learned).
+checkpoint_path: null
+
+# Test seed — separate from data.seed and train.seed.
+test_seed: 999
+
+# Number of synthetic test graphs (used when dataset=synthetic).
+num_test_graphs: 20
+
+# ── Outlier injection on real benchmark data ──────────────────────────────────
+# When dataset is a real .g2o benchmark, injected loop-closure edges provide
+# known labels for edge-F1 evaluation. The existing graph edges are preserved
+# unlabeled (label=-1).
+inject_outliers: true           # whether to inject labelled LCs on top of real data
+injection_num_lcs: 20           # number of LCs to inject
+injection_outlier_rate: 30      # % of injected LCs that are outliers
+injection_outlier_structure: random  # "random" | "clustered"
+
+# ── Output ────────────────────────────────────────────────────────────────────
+save_per_graph: false           # write per_graph.json (can be large)
+save_summary: true              # write summary.json
+print_table: true               # print results to console
+log_to_wandb: false             # log summary metrics to wandb

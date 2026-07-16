@@ -1,0 +1,6 @@
+# Learned evaluation: load a GNN checkpoint, run inference, pass weights to solver.
+
+method: learned
+
+# Path to model checkpoint (.pt file).
+checkpoint_path: ???
