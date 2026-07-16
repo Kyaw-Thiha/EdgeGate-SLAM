@@ -34,14 +34,33 @@ odometry-chained initial pose guess) is the natural baseline candidate, since
 it's already required for solver initialization regardless of what else is
 used.
 
-A live design fork worth deciding deliberately when writing `graph_builder.py`:
-whether to also feed edges a **residual-under-initial-guess** feature (how
-inconsistent a loop-closure measurement is with what the rest of the graph
-implies). This is a strong signal — it's the exact quantity classical kernels
-like DCS/GNC threshold on — but including it shifts the model from "pure
-topological consistency pattern" (the proposal's original framing) toward a
-hybrid geometric+topological model. Not a blocker, but shouldn't be decided
-by accident.
+**Decision (locked, July 2026): edge features = raw measurement
+`(dx, dy, dθ)` + `edge_type` + information-matrix diagonal/norm.** No
+residual-under-initial-guess feature in Phase 0/1. Reasoning:
+
+- This matches the proposal's actual claim — that the inlier/outlier
+  distinction is a topological consistency pattern extractable by message
+  passing. Including the residual would quietly turn the model into a
+  hybrid geometric+topological one, and the proposal's framing would need to
+  be rewritten to still be accurate.
+- The residual-under-initial-guess is *literally* the quantity DCS/GNC
+  threshold on. If the GNN's input already contains it, an F1 win over
+  those baselines stops being an interesting result — of course a model
+  handed the classical kernel's own signal matches or beats it. The
+  scientifically clean question is whether pure topology, without that
+  signal, gets competitive performance.
+- Computing it correctly requires composing the full odometry chain in
+  SE(2) (not naive coordinate subtraction) — a real chance for a subtle bug.
+  Deferring it keeps Phase 0 from depending on getting that right first.
+
+The information-matrix diagonal/norm is included from the start (not
+deferred alongside the residual) because it isn't a *derived geometric*
+signal — it requires no solving, it's metadata already present on every
+real `.g2o` edge, and excluding it doesn't buy the same clean-ablation
+story that excluding the residual does.
+
+See §"Future Work" for revisiting the residual feature as a Phase 2+
+addition once a pure-topology baseline is established.
 
 ## Edge-Weight → Information-Matrix Convention
 
@@ -61,6 +80,101 @@ Implement as a single shared function
 (`scale_information(Λ, w) -> Λ * w**2`) used identically by both
 `pypose_solver.py` and `gtsam_solver.py`, so the two solver adapters can never
 silently diverge on what a given confidence score means.
+
+## Synthetic Generator Design
+
+Decisions locked July 2026, after checking what the closest sibling papers
+(Policies over Poses, and the standard PGO benchmark lineage — Manhattan,
+Sphere2500, Grid/City10000, Torus, Cubicle, Rim, all descending from Olson's
+2006 "Manhattan world" generator and Carlone/Rosen's SE-Sync suite) actually
+do. None of them use a free random walk — this is worth internalizing before
+writing `synthetic_generator.py`, since it changes the trajectory-shape
+decision below from a free design choice to "match established practice."
+
+### Trajectory shape
+
+**Decision: Manhattan-world-style structured generation (grid-constrained
+motion, axis-aligned segments with turns, periodic revisits at a
+controllable rate) — not a free 2D random walk.**
+
+Reasoning: loop closures require geometric revisit structure to occur
+meaningfully at all. A true random walk revisits earlier positions only by
+chance, at a rate that depends on step size and drift — this produces a
+trajectory topology that doesn't resemble the real benchmarks (Intel, M3500)
+being evaluated against for domain shift, both of which are corridor/room
+traversals with *deliberate* repeated visits, not undirected wandering. Every
+synthetic dataset in the standard PGO benchmark suite is structured for
+exactly this reason. This is treated as borrowed infrastructure, not a
+research contribution surface: none of the surrounding literature claims
+novelty for its trajectory generator, and design effort spent here has
+near-zero payoff for this project's actual contribution (edge-type-aware
+confidence + generalization-gap characterization) while a low-quality
+generator carries real risk of silently corrupting the Phase 1 measurement.
+
+Explicitly rejected: a full physics/sensor simulator (Gazebo, etc.) — out of
+scope, no evidence any comparable paper needs one for pose-graph-level
+evaluation.
+
+### Loop-closure placement
+
+**Decision: inlier and outlier loop closures are sampled from different
+populations, not the same proximity-agnostic pool.**
+
+- **Inlier (true) loop closures**: sampled between pose pairs that are
+  actually spatially close (within a proximity threshold) — this is what a
+  real place-recognition front-end does, and falls out naturally from the
+  Manhattan-world generator's revisit structure above (the robot is
+  genuinely back at a previously-visited grid cell).
+- **Outlier loop closures**: sampled between pose pairs that are spatially
+  **distant** — modeling perceptual aliasing, where the front-end proposes a
+  closure between two poses that *look* similar but aren't actually
+  nearby. This is what makes them wrong, and what makes them the hard,
+  realistic case to catch geometrically.
+
+Rejected: sampling outliers uniformly at random over all pairs regardless of
+proximity. Most such pairs would already be trivially far apart in the
+trajectory and easy to reject, producing an artificially easy synthetic
+outlier distribution that inflates F1 relative to real perceptual aliasing —
+exactly the kind of thing that shows up later as an unexplained sim-to-real
+gap with no clear cause.
+
+### Outlier measurement type
+
+**Decision: treat this as a locked, documented sweep axis (like outlier rate
+and structure), with the Gaussian-shifted-offset case as primary and
+uniform-random as the explicit "easy ablation," not the default.**
+
+- **Uniform random replacement**: wildly geometrically inconsistent, trivial
+  for any topological method to flag. The easy case.
+- **Gaussian shift by a large offset**: a plausible-looking but wrong
+  measurement — closer to what actual perceptual aliasing produces, since a
+  misidentified place usually does look somewhat geometrically similar to
+  the true one. The hard, realistic case.
+
+Given that Phase 1's whole framing is an honest generalization-gap
+characterization, headline synthetic numbers should be reported primarily
+against the hard case; using uniform-random as the default would risk
+inflating synthetic performance by construction.
+
+### Information matrices
+
+**Decision: fixed isotropic values to start** (matches standard benchmark
+convention, e.g. `diag(500, 500, 100)` for odometry, `diag(100, 100, 50)`
+for loop-closures), **not sampled per-edge, for Phase 0/1.** Removes a
+confound while the core pipeline is being built. See §"Future Work" for
+sampled information matrices as a Phase 1 dependency once the noise-scale
+domain-shift metric needs a range to correlate against.
+
+### Synthetic outlier realism — cross-cutting note
+
+Loop-closure placement, outlier measurement type, and information-matrix
+sampling all bear directly on how "easy" synthetic outliers are relative to
+real ones — precisely the axis the Phase 1 generalization-gap study is
+trying to measure. These are locked-before-training decisions, not generator
+implementation details to be revisited casually after seeing results; if
+they're loosened or changed after Phase 1 numbers come in, the
+generalization-gap claim is no longer honestly measured, for the same reason
+the real-benchmark eval-once rule exists.
 
 ## Solver Convergence / Failure Handling
 
@@ -258,3 +372,49 @@ implementation decisions are locked yet beyond: build as a standalone
 `evaluate.py` baseline arm first, and resolve the plain-PyTorch vs.
 Nengo/nengo-spa dependency question before starting the module, since it
 determines whether Pixi's `pixi.toml` needs a new dependency group.
+
+## Future Work
+
+Items discussed and deliberately deferred — not blockers for Phase 0/1, but
+recorded here so they're picked up on purpose rather than forgotten or
+re-decided by accident later.
+
+- **Residual-under-initial-guess as an edge feature.** Deferred out of
+  Phase 0/1 (see Data Schema section above) so the MVP stays a clean
+  pure-topology ablation against DCS/GNC. Once that baseline exists,
+  revisit as an explicit second config (`graph_builder.py` feature flag)
+  and compare — this is the natural way to measure how much a hybrid
+  geometric+topological model buys over pure topology, rather than
+  assuming it helps. Requires correct SE(2) chain composition, not naive
+  coordinate subtraction.
+- **Trajectory-shape / revisit-rate as a domain-shift metric.** Flagged
+  during the synthetic-generator discussion: even with Manhattan-world-style
+  generation replacing random walk, the synthetic revisit rate/structure may
+  still not match a given real benchmark's (Intel vs. M3500 likely differ
+  from each other, too). Candidate fourth domain-shift metric alongside the
+  three already locked in §"Domain-Shift Characterization Metrics" —
+  definition needs to be worked out and locked before it can be used, same
+  rule as the existing three.
+- **Sampled (non-fixed) information matrices.** Fixed isotropic values are
+  the Phase 0/1 default (see Synthetic Generator Design above). Revisit once
+  Phase 1's noise-scale-mismatch metric needs synthetic data spanning a
+  *range* of noise scales to correlate degradation against — fixed isotropic
+  can't produce that variation by construction.
+- **Crossing the K-sweep (solver iterations) with the outlier-rate/structure
+  sweep.** Currently run independently on purpose (K is a training-dynamics
+  question, outlier rate is a robustness question — crossing them multiplies
+  compute for a combined question not yet needed). Revisit only if a
+  specific hypothesis emerges that needs the interaction term.
+- **Full physics/sensor simulator (e.g. Gazebo).** Explicitly considered and
+  rejected for trajectory generation (see Synthetic Generator Design above)
+  — no evidence any comparable paper needs one at the pose-graph level.
+  Would only become relevant if the project ever moved upstream into
+  front-end/sensor-level work, which is out of scope for this project's
+  current framing.
+- **Outlier-type sweep beyond the two locked cases.** Uniform-random and
+  Gaussian-shifted-offset are the two cases currently planned (Synthetic
+  Generator Design above). Other structured outlier models (e.g.
+  systematically biased along a specific axis, or correlated/clustered
+  offset magnitudes rather than i.i.d.) are a possible future addition if
+  the Gaussian case alone proves insufficient to explain a real-benchmark
+  degradation pattern.
