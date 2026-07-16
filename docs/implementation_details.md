@@ -62,6 +62,19 @@ story that excluding the residual does.
 See §"Future Work" for revisiting the residual feature as a Phase 2+
 addition once a pure-topology baseline is established.
 
+## GNN Architecture
+
+Component-level design for `edgegate/models/layers.py` and
+`edgegate_gnn.py` — message function, confidence head, residuals/
+normalization, locked hyperparameters (with reasoning), and the planned
+Phase 1+ architecture ablations (edge-conditioned convolution, attention
+aggregation, recurrent chain processing) — is documented separately in
+**`GNN.md`**, not duplicated here. This section stays the model's
+integration surface (its inputs/outputs at the data-schema and `Solver`
+boundary); `GNN.md` is the internals. Update `GNN.md`, not this section,
+when the message-passing layer, confidence head, or GNN hyperparameters
+change.
+
 ## Edge-Weight → Information-Matrix Convention
 
 **Decision: scale the full information matrix by `w²`**, equivalently scale
@@ -448,3 +461,14 @@ re-decided by accident later.
   offset magnitudes rather than i.i.d.) are a possible future addition if
   the Gaussian case alone proves insufficient to explain a real-benchmark
   degradation pattern.
+- **GNN architecture ablations (full detail in `GNN.md` §4).** Four
+  candidates, ordered by priority, none blocking Phase 0: (A) swapping the
+  type-specific linear message function for a continuous edge-conditioned
+  convolution (ECC/NNConv-style, matching *Policies over Poses*'s design);
+  (B) swapping sum-aggregation for attention-based aggregation
+  (`TransformerConv`); (C) a GRU/recurrent pass over the odometry chain,
+  with loop-closures as cross-links, again echoing *Policies over Poses*'s
+  hybrid GRU + edge-conditioned-GNN shape; (D) edge-state updates across
+  layers (full mutable-edge-state MPNN). All four require only
+  `layers.py`/`edgegate_gnn.py` changes and go through the existing
+  `evaluate.py` harness unchanged.
