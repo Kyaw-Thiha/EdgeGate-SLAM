@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Pixi
+.pixi/
+
+# Hydra outputs
+outputs/
+multirun/
+
+# W&B
+wandb/
+
+# Project data and runs (large, generated, or held-out)
+data/synthetic/
+data/raw/
+runs/
+
+# Misc
+.DS_Store
+*.log
+*.tmp
