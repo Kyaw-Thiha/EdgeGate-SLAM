@@ -5,6 +5,7 @@
 defaults:
   - eval_mode: evaluate
   - eval_method: learned
+  - eval_dataset: synthetic
   - data: synthetic
   - model: edgegate_gnn
   - solver: pypose

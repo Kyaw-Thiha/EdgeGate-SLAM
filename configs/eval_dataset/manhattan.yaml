@@ -1,0 +1,5 @@
+# Manhattan world benchmark (Olson 2006, simulated 3500 nodes).
+# Both F1 (with injected outliers) and true ATE are reportable.
+
+dataset: manhattan
+path: data/raw/manhattan.g2o

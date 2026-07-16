@@ -1,3 +1,4 @@
+import pytest
 import torch
 import numpy as np
 from edgegate.data.synthetic_generator import generate

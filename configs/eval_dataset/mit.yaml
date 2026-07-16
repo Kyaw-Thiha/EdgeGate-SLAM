@@ -1,0 +1,5 @@
+# MIT Killian Court benchmark (real robot log, no independent ground truth).
+# F1 only (with injected outliers); ATE not reportable as absolute truth.
+
+dataset: mit
+path: data/raw/MIT.g2o

@@ -1,0 +1,5 @@
+# Parking garage benchmark (simulated, ships with ground truth).
+# Both F1 (with injected outliers) and true ATE are reportable.
+
+dataset: parking-garage
+path: data/raw/parking-garage.g2o

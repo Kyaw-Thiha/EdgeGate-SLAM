@@ -36,12 +36,21 @@ def load_g2o(path: str | Path) -> PoseGraph:
                 info = [float(parts[6 + k]) for k in range(6)]
                 raw_edges.append((id1, id2, meas, info))
 
-    sorted_ids = sorted(vertices)
-    id_to_idx = {vid: i for i, vid in enumerate(sorted_ids)}
-
-    node_init = np.array(
-        [vertices[vid] for vid in sorted_ids], dtype=np.float64
-    )  # (N, 3)
+    if vertices:
+        sorted_ids = sorted(vertices)
+        id_to_idx = {vid: i for i, vid in enumerate(sorted_ids)}
+        node_init = np.array(
+            [vertices[vid] for vid in sorted_ids], dtype=np.float64
+        )
+    else:
+        # Edge-only .g2o file — infer vertices from unique edge endpoint IDs.
+        all_ids = set()
+        for id1, id2, _, _ in raw_edges:
+            all_ids.add(id1)
+            all_ids.add(id2)
+        sorted_ids = sorted(all_ids)
+        id_to_idx = {vid: i for i, vid in enumerate(sorted_ids)}
+        node_init = np.zeros((len(sorted_ids), 3), dtype=np.float64)
 
     E = len(raw_edges)
     edge_index = np.empty((2, E), dtype=np.int64)

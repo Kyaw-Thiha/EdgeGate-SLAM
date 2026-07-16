@@ -2,5 +2,6 @@ outlier_rate: 30          # percentage of loop-closure edges that are outliers
 outlier_structure: random  # random | clustered
 num_poses: 50
 num_loop_closures: 20
+segment_length: 5           # mean steps per Manhattan-world segment (smaller = more revisits)
 proximity_threshold: 2.0   # max Euclidean distance for inlier LC candidates
 seed: 42

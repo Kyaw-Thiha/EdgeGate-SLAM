@@ -1,0 +1,5 @@
+# City 10000 benchmark (Olson 2006, simulated 10000 nodes).
+# Both F1 (with injected outliers) and true ATE are reportable.
+
+dataset: city10000
+path: data/raw/city10000.g2o

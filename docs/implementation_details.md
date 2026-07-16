@@ -655,3 +655,16 @@ re-decided by accident later.
   `configs/eval/method/switchable.yaml` stub raises `NotImplementedError`
   pointing here. GNC and DCS are the classical baselines available in
   Phase 0/1.
+- **SE(3) extension (sphere2500, parking-garage).** The SE-Sync repo ships
+  sphere2500 and parking-garage as `VERTEX_SE3:QUAT` / `EDGE_SE3:QUAT` format
+  (3D quaternion poses with 6-DOF measurements and 6×6 information matrices),
+  while the current `g2o_io.py` parser, `PoseGraph` fixed array shapes,
+  `graph_builder.py`/GNN feature dimensions, both solver adapters, and
+  `ate_rmse.py` (2D Umeyama only) are all SE(2)-only. The `PoseGraph.manifold`
+  field already exists as a marker. Full SE(3) support requires extending every
+  layer of the stack: parser (recognise SE3:QUAT), `PoseGraph` (dynamic or
+  separate array shapes), `graph_builder.py` (dispatch on manifold for feature
+  dims), GNN model (configurable `node_feat_dim`/`edge_attr_dim`), GTSAM
+  solver (swap `Pose2`→`Pose3`), PyPose solver (manual SE(3) residual or SO(3)
+  + R³), and ATE metric (3D Umeyama). `evaluate.py` skips SE3 datasets with a
+  warning. Not blocking Phase 0/1.

@@ -1,0 +1,5 @@
+# MIT CSAIL building benchmark (real robot log, no independent ground truth).
+# F1 only (with injected outliers); ATE not reportable as absolute truth.
+
+dataset: csail
+path: data/raw/CSAIL.g2o

@@ -1,5 +1,9 @@
-# Sphere2500 benchmark (simulated, ships with ground truth trajectory).
-# Both F1 (with injected outliers) and true ATE are reportable.
+# Sphere2500 benchmark (SE(3) quaternion format — not parseable by current SE(2)-only
+# g2o_io.py parser). Deferred to Phase 2 (SE3 extension).
+# The file may exist on disk from download but evaluate.py will skip it with a warning.
+#
+# Both F1 (with injected outliers) and true ATE would be reportable once SE3 parsing exists.
 
 dataset: sphere2500
 path: data/raw/sphere2500.g2o
+manifold: SE3  # SE(3) quaternion — requires SE3 g2o parser extension

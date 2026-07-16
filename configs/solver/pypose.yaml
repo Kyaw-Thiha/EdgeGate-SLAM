@@ -1,4 +1,2 @@
 _target_: edgegate.solvers.pypose_solver.PyPoseSolver
-damping: 1.0e-4
-patience: 5
-decreasing: 1.0e-3
+max_iterations: null  # null = full convergence; overridden during trajectory_loss training

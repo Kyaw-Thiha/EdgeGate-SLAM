@@ -3,6 +3,6 @@
 dataset: synthetic
 
 # Override the data generation seed with the eval-specific test seed.
-# (Hydra resolves ${eval.test_seed} from the evaluate.yaml defaults.)
+# Resolves from cfg.eval_mode.test_seed (the eval_mode config group key).
 data:
-  seed: ${eval.test_seed}
+  seed: ${eval_mode.test_seed}

@@ -178,6 +178,7 @@ def _save_checkpoint(model, solver, viz_graph, epoch) -> None:
 
     np.save(os.path.join(ckpt_dir, "poses.npy"), poses.cpu().numpy())
     np.save(os.path.join(ckpt_dir, "edge_weights.npy"), conf.cpu().numpy())
+    model.train()  # restore training mode — eval() must not persist past this function
 
 
 def train(cfg: DictConfig) -> None:
