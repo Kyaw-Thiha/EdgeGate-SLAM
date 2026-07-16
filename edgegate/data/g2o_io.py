@@ -3,6 +3,10 @@ from pathlib import Path
 import numpy as np
 from edgegate.data.types import PoseGraph
 
+# EDGE_SE2 stores the 3×3 information matrix as its upper triangle.
+# Column ordering in edge_info: [Ixx, Ixy, Ixθ, Iyy, Iyθ, Iθθ]  (indices 0–5)
+# Diagonal (Ixx, Iyy, Iθθ) → indices [0, 3, 5] — used by graph_builder.to_pyg.
+
 
 def load_g2o(path: str | Path) -> PoseGraph:
     """Parse a .g2o file (SE(2) only) into a PoseGraph.
