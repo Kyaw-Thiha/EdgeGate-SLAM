@@ -1,4 +1,7 @@
 # pixi run train --multirun train.solver_train_iterations=1,3,5,10,20
+defaults:
+  - override hydra/launcher: joblib
+
 hydra:
   sweeper:
     params:

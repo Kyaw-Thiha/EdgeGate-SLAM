@@ -1,3 +1,2 @@
 _target_: edgegate.solvers.gtsam_solver.GTSAMSolver
-kernel: gnc  # gnc | dcs | switchable | none
-max_iterations: null
+kernel: gnc  # gnc | dcs | none

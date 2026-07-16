@@ -1,1 +1,3 @@
-_target_: edgegate.losses.trajectory_loss.TrajectoryLoss
+# Trainer constructs TrajectoryLoss(solver, train_iterations) manually.
+# This config only holds the parameters so the K-sweep can override them.
+train_iterations: ${train.solver_train_iterations}

@@ -1,5 +1,10 @@
 epochs: 100
 lr: 1.0e-3
 batch_size: 16
+num_graphs: 100              # total synthetic graphs generated per run
 solver_train_iterations: 5  # K — fixed iters during trajectory_loss training; sweep via solver_iterations_grid
+loss_mode: bce               # bce | trajectory | combined
+trajectory_loss_weight: 1.0  # only used in combined mode
+checkpoint_every: 5          # full checkpoint (poses + edge_weights) every N epochs
+val_split: 0.2               # fraction of synthetic graphs held out for validation
 seed: 0

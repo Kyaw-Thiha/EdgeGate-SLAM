@@ -6,3 +6,7 @@ defaults:
   - train: default
   - logging: wandb
   - _self_
+
+hydra:
+  job:
+    chdir: true
