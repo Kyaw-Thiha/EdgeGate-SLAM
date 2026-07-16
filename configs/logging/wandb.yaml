@@ -1,0 +1,2 @@
+project: edgegate-slam
+entity: null  # set via WANDB_ENTITY env var or fill in here

@@ -1,0 +1,6 @@
+# pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered
+hydra:
+  sweeper:
+    params:
+      data.outlier_rate: 10,30,50,70,90
+      data.outlier_structure: random,clustered

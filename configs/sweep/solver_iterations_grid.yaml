@@ -1,0 +1,5 @@
+# pixi run train --multirun train.solver_train_iterations=1,3,5,10,20
+hydra:
+  sweeper:
+    params:
+      train.solver_train_iterations: 1,3,5,10,20

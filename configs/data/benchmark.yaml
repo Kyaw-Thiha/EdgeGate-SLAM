@@ -1,0 +1,4 @@
+# Real benchmark datasets — held out, eval-only. Never used during training.
+# Intel / M3500 / Sphere2500 / parking-garage
+name: intel
+path: data/raw/${data.name}.g2o

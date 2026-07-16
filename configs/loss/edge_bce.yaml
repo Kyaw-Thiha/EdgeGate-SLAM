@@ -1,0 +1,1 @@
+_target_: edgegate.losses.edge_bce.EdgeBCELoss
