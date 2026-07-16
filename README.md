@@ -125,8 +125,27 @@ pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structur
 # Hydra multirun — solver-iterations sweep (trajectory-loss ablation)
 pixi run train --multirun train.solver_train_iterations=1,3,5,10,20
 
-# Visualize a past run with Rerun (not yet implemented)
-pixi run demo-rerun
+# Visualize — quick live demo (no trained model needed)
+pixi run demo-rerun -- --live
+
+# Visualize — replay a training run (scrub epoch timeline)
+pixi run demo-rerun -- --replay outputs/<date>/<time>/
+
+# Visualize — compare methods on the same graph (paper figure)
+pixi run demo-rerun -- --compare learned=outputs/eval/learned gnc=outputs/eval/gnc --graph-idx 0
+
+# Save any visualization to .rrd for offline sharing
+pixi run demo-rerun -- --live --save-rrd results/demo.rrd
+rerun results/demo.rrd
+```
+
+## Visualization (Rerun)
+
+See `docs/visualization.md` for full usage — live demo, epoch replay, laser scan overlay, and multi-method comparison.
+
+```bash
+pixi run demo-rerun -- --live                          # quick start, no model needed
+pixi run demo-rerun -- --replay outputs/<date>/<time>/ # replay a training run
 ```
 
 ## Project layout
@@ -189,7 +208,8 @@ edgegate-slam/
 │   ├── EdgeGate_SLAM_Research_Proposal.md
 │   ├── architecture.md
 │   ├── implementation_details.md
-│   └── GNN.md
+│   ├── GNN.md
+│   └── visualization.md
 │
 ├── scripts/
 │   ├── download_benchmarks.py

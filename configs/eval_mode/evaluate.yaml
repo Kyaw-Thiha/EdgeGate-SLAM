@@ -31,6 +31,7 @@ injection_outlier_rate: 30      # % of injected LCs that are outliers
 injection_outlier_structure: random  # "random" | "clustered"
 
 # ── Output ────────────────────────────────────────────────────────────────────
+save_poses: true                # write per_graph/graph_NNN/poses.npy + confidence.npy
 save_per_graph: false           # write per_graph.json (can be large)
 save_summary: true              # write summary.json
 print_table: true               # print results to console

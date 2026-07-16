@@ -38,7 +38,7 @@ class TestEvaluateOneGraph:
         solver = PyPoseSolver()
         g = _make_graph(0)
         result = evaluate_one_graph(model, solver, g)
-        assert set(result.keys()) == {"tp", "fp", "fn", "ate"}
+        assert {"tp", "fp", "fn", "ate", "poses", "confidence"} <= set(result.keys())
 
     def test_perfect_predictions_zero_fp_fn(self):
         """DummyGNN returns edge_label as confidence → perfect predictions."""
@@ -157,4 +157,48 @@ class TestAccumulateMetrics:
         assert agg["ate"] == pytest.approx(0.4)
 
 
-import pytest
+class TestSentinelLabels:
+
+    def test_sentinel_labels_excluded(self):
+        """Existing real-benchmark LC edges carry edge_label=-1.0 (sentinel).
+        evaluate_one_graph must only count injected edges with label in {0, 1}."""
+        from edgegate.data.types import PoseGraph
+        from edgegate.data.graph_builder import to_pyg
+
+        # Build a minimal graph: 4 nodes, 3 odom edges + 2 LC edges
+        # LC edge 0: sentinel (label=-1.0, existing real-benchmark edge)
+        # LC edge 1: labelled inlier (label=1.0, injected)
+        node_init = np.zeros((4, 3), dtype=np.float32)
+        edge_index = np.array([
+            [0, 1, 2, 0, 1],   # src
+            [1, 2, 3, 2, 3],   # dst
+        ], dtype=np.int64)
+        edge_measurement = np.zeros((5, 3), dtype=np.float32)
+        edge_info = np.tile(np.array([500, 0, 0, 500, 0, 100], dtype=np.float32), (5, 1))
+        edge_type = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        edge_label = np.array([-1.0, -1.0, -1.0, -1.0, 1.0], dtype=np.float32)
+
+        graph = PoseGraph(
+            node_init=node_init,
+            edge_index=edge_index,
+            edge_measurement=edge_measurement,
+            edge_info=edge_info,
+            edge_type=edge_type,
+            edge_label=edge_label,
+        )
+
+        # A perfect-oracle model that returns labels as confidence
+        class OracleGNN(torch.nn.Module):
+            def forward(self, data):
+                # return 1.0 for all edges (including odom) — a confident model
+                return torch.ones(data.edge_index.shape[1])
+
+        model = OracleGNN()
+        solver = PyPoseSolver()
+        result = evaluate_one_graph(model, solver, graph)
+
+        # Sentinel LC edge (label=-1.0) must be excluded.
+        # Injected LC edge has label=1.0 and pred=1.0 → tp=1, fp=0, fn=0.
+        assert result["tp"] == 1
+        assert result["fp"] == 0
+        assert result["fn"] == 0

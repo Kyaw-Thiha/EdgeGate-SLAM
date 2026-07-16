@@ -22,7 +22,9 @@ def evaluate_one_graph(
         conf = model(data)
 
         if hasattr(data, "edge_label") and data.edge_label is not None:
-            lc_mask = data.edge_type == 1
+            # Exclude sentinel -1.0 labels (existing real-benchmark edges when
+            # outliers are injected on top — those edges have no ground-truth label).
+            lc_mask = (data.edge_type == 1) & (data.edge_label >= 0)
             pred = conf[lc_mask] >= 0.5
             label = data.edge_label[lc_mask] >= 0.5
             tp = int((pred & label).sum().item())
@@ -31,15 +33,21 @@ def evaluate_one_graph(
         else:
             tp = fp = fn = 0
 
+        poses, converged, iters, cost = solver.solve(graph, conf, max_iterations=None)
+
         ate = None
         if graph.gt_node_poses is not None:
             gt = torch.from_numpy(graph.gt_node_poses).float()
-            poses, converged, iters, cost = solver.solve(
-                graph, conf, max_iterations=None
-            )
             ate = ate_rmse(poses, gt)
 
-    return {"tp": tp, "fp": fp, "fn": fn, "ate": ate}
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "ate": ate,
+        "poses": poses.cpu().numpy(),
+        "confidence": conf.cpu().numpy(),
+    }
 
 
 def evaluate_one_graph_classical(
@@ -53,15 +61,18 @@ def evaluate_one_graph_classical(
     per-edge confidence scores):
         {"ate": float | None}
     """
+    poses, converged, iters, cost = solver.solve(graph, edge_weights, max_iterations=None)
+
     ate = None
     if graph.gt_node_poses is not None:
         gt = torch.from_numpy(graph.gt_node_poses).float()
-        poses, converged, iters, cost = solver.solve(
-            graph, edge_weights, max_iterations=None
-        )
         ate = ate_rmse(poses, gt)
 
-    return {"ate": ate}
+    return {
+        "ate": ate,
+        "poses": poses.cpu().numpy(),
+        "confidence": edge_weights.cpu().numpy(),
+    }
 
 
 def accumulate_metrics(results: list[dict]) -> dict:

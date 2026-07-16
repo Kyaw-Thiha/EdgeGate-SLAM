@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import json
+import os
 import warnings
 from pathlib import Path
 
@@ -211,6 +212,17 @@ def _safe_serialize(obj):
     return str(obj)
 
 
+def _save_graph_info(graph, out_dir: str) -> None:
+    info = {
+        "node_init": graph.node_init.tolist(),
+        "edge_index": graph.edge_index.tolist(),
+        "edge_type": graph.edge_type.tolist(),
+        "edge_label": graph.edge_label.tolist() if graph.edge_label is not None else None,
+        "gt_node_poses": graph.gt_node_poses.tolist() if graph.gt_node_poses is not None else None,
+    }
+    Path(out_dir, "graph_info.json").write_text(json.dumps(info))
+
+
 def _run_evaluate(cfg: DictConfig) -> None:
     from hydra.core.hydra_config import HydraConfig
     try:
@@ -230,6 +242,9 @@ def _run_evaluate(cfg: DictConfig) -> None:
     model = method["model"]
     method_type = method["type"]
 
+    save_poses = cfg.eval_mode.get("save_poses", True)
+    graph_info_saved = False
+
     results = []
     for i, graph in enumerate(graphs):
         if method_type == "learned":
@@ -238,6 +253,16 @@ def _run_evaluate(cfg: DictConfig) -> None:
             w = torch.ones(graph.edge_index.shape[1])
             r = evaluate_one_graph_classical(solver, graph, w)
         r["graph_idx"] = i
+
+        if save_poses and "poses" in r and r["poses"] is not None:
+            pg_dir = os.path.join(out_dir, "per_graph", f"graph_{i:03d}")
+            os.makedirs(pg_dir, exist_ok=True)
+            np.save(os.path.join(pg_dir, "poses.npy"), r["poses"])
+            np.save(os.path.join(pg_dir, "confidence.npy"), r["confidence"])
+            if not graph_info_saved:
+                _save_graph_info(graph, out_dir)
+                graph_info_saved = True
+
         results.append(r)
 
     agg = accumulate_metrics(results)
