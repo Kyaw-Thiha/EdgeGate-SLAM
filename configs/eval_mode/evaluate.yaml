@@ -10,7 +10,10 @@ mode: evaluate
 dataset: synthetic
 
 # Checkpoint path (required only when method=learned).
+# precedence: checkpoint_path > model_dir/model_best.pt > ./model_best.pt
 checkpoint_path: null
+# model_dir: path to a training output directory containing model_best.pt
+model_dir: null
 
 # Test seed — separate from data.seed and train.seed.
 test_seed: 999

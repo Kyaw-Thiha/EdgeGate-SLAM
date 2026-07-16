@@ -54,6 +54,7 @@ cpu    = { features = ["cpu"], solve-group = "cpu" }
 [tasks]
 train              = "python scripts/train.py"
 evaluate           = "python scripts/evaluate.py"
+run-sweep          = "python scripts/run_sweep.py"
 gen-synthetic      = "python scripts/generate_synthetic.py"
 download-benchmarks = "python scripts/download_benchmarks.py"
 demo-rerun         = "python scripts/demo_rerun.py"

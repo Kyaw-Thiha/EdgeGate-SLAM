@@ -70,8 +70,13 @@ def _load_benchmark(cfg: DictConfig) -> list:
             f"to Phase 2. Skipping evaluation on {ds_name}."
         )
         return []
-    path = _BENCHMARK_PATHS.get(ds_name, "")
-    if not path or not Path(path).exists():
+    rel_path = _BENCHMARK_PATHS.get(ds_name, "")
+    if not rel_path:
+        warnings.warn(f"No path mapping for dataset '{ds_name}' — skipping.")
+        return []
+    from hydra.utils import get_original_cwd
+    path = str(Path(get_original_cwd()) / rel_path)
+    if not Path(path).exists():
         warnings.warn(f"Benchmark file not found: {path} — skipping.")
         return []
 
@@ -89,13 +94,21 @@ def _load_benchmark(cfg: DictConfig) -> list:
             ref_poses, _, _, _ = solver.solve(graph, w)
             ref_poses = ref_poses.cpu().numpy()
 
-        lc_edges, lc_meas, lc_labels = inject_labeled_loop_closures(
-            reference_poses=ref_poses,
-            num_loop_closures=cfg.eval_mode.get("injection_num_lcs", 20),
-            outlier_rate=cfg.eval_mode.get("injection_outlier_rate", 30),
-            outlier_structure=cfg.eval_mode.get("injection_outlier_structure", "random"),
-            rng=rng,
-        )
+        try:
+            lc_edges, lc_meas, lc_labels = inject_labeled_loop_closures(
+                reference_poses=ref_poses,
+                num_loop_closures=cfg.eval_mode.get("injection_num_lcs", 20),
+                outlier_rate=cfg.eval_mode.get("injection_outlier_rate", 30),
+                outlier_structure=cfg.eval_mode.get("injection_outlier_structure", "random"),
+                rng=rng,
+            )
+        except ValueError:
+            warnings.warn(
+                f"Outlier injection failed for {ds_name} — graph topology may not "
+                f"have enough proximal/distant pairs. Returning graph without injected "
+                f"labels (F1 will be N/A)."
+            )
+            return [graph]
 
         E_existing = graph.edge_index.shape[1]
         E_new = lc_edges.shape[1]
@@ -144,13 +157,22 @@ def _setup_method(cfg: DictConfig) -> dict:
     method: dict = {"type": method_name, "model": None}
 
     if method_name == "learned":
+        from hydra.utils import get_original_cwd
+
+        model_dir = cfg.eval_mode.get("model_dir")
         ckpt_path = cfg.eval_mode.get("checkpoint_path")
-        if ckpt_path is None:
-            ckpt_path = "model_best.pt"
+        if model_dir is not None:
+            p = Path(model_dir)
+            if not p.is_absolute():
+                p = Path(get_original_cwd()) / p
+            ckpt_path = str(p / "model_best.pt")
+        elif ckpt_path is None:
+            ckpt_path = str(Path(get_original_cwd()) / "model_best.pt")
         if not Path(ckpt_path).exists():
             raise FileNotFoundError(
                 f"Checkpoint not found: {ckpt_path}. "
-                "Set eval_mode.checkpoint_path or place model_best.pt in cwd."
+                "Set eval_mode.checkpoint_path, eval_mode.model_dir, "
+                "or place model_best.pt in cwd."
             )
         model = instantiate(cfg.model)
         model.load_state_dict(

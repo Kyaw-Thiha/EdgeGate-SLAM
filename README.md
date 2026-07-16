@@ -37,6 +37,11 @@ pixi run gen-synthetic
 # 4. Train the GNN with BCE loss on synthetic data
 pixi run train
 
+# Or run the entire training→evaluation pipeline in one command:
+pixi run run-sweep                         # full sweep: 10 models × 7 datasets
+pixi run run-sweep -- --epochs 50          # shorter training
+pixi run run-sweep -- --rates 30,50,70     # subset of outlier rates
+
 # 5. Evaluate learned model on synthetic test graphs
 pixi run evaluate eval_mode.dataset=synthetic
 
