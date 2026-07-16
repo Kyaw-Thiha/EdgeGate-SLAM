@@ -1,5 +1,5 @@
 from __future__ import annotations
-from edgegate.data.graph_builder import PoseGraph
+from edgegate.data.types import PoseGraph
 
 
 def generate(

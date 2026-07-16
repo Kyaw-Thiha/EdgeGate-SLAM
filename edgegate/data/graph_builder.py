@@ -1,17 +1,8 @@
 from __future__ import annotations
-from dataclasses import dataclass
-import numpy as np
+from torch_geometric.data import Data
+from edgegate.data.types import PoseGraph
 
 
-@dataclass
-class PoseGraph:
-    node_init: np.ndarray        # (N, 3) initial pose guess (x, y, θ)
-    edge_index: np.ndarray       # (2, E)
-    edge_measurement: np.ndarray # (E, 3) relative (dx, dy, dθ)
-    edge_info: np.ndarray        # (E, 6) upper-tri of 3×3 information matrix
-    edge_type: np.ndarray        # (E,) 0=odometry, 1=loop-closure
-    edge_label: np.ndarray | None = None  # (E,) ground-truth inlier, synthetic only
-
-
-def to_pyg(graph: PoseGraph):
+def to_pyg(graph: PoseGraph) -> Data:
+    """Convert a PoseGraph to a PyG Data object for GNN input."""
     raise NotImplementedError

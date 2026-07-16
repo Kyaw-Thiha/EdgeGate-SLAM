@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import torch
-from edgegate.data.graph_builder import PoseGraph
+from edgegate.data.types import PoseGraph
 
 
 def scale_information(info: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
