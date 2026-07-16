@@ -77,6 +77,7 @@ edgegate-slam/
 │
 ├── configs/
 │   ├── config.yaml                    # root: defaults list composes the groups below
+│   ├── evaluate.yaml                  # root: eval mode, method, dataset, solver, model, logging
 │   ├── data/
 │   │   ├── synthetic.yaml
 │   │   └── benchmark.yaml             # Intel / M3500 / Sphere2500 / parking-garage
@@ -92,9 +93,23 @@ edgegate-slam/
 │   │   └── default.yaml
 │   ├── logging/
 │   │   └── wandb.yaml
-│   └── sweep/
-│       ├── outlier_grid.yaml
-│       └── solver_iterations_grid.yaml
+│   ├── sweep/
+│   │   ├── outlier_grid.yaml
+│   │   └── solver_iterations_grid.yaml
+│   ├── eval_mode/
+│   │   ├── evaluate.yaml              # mode=evaluate
+│   │   └── aggregate.yaml             # mode=aggregate (sweep comparison)
+│   ├── eval_method/
+│   │   ├── learned.yaml               # GNN checkpoint + solver
+│   │   ├── uniform.yaml               # unit weights baseline
+│   │   ├── gnc.yaml                   # GNC kernel (GTSAM)
+│   │   ├── dcs.yaml                   # DCS kernel (GTSAM)
+│   │   └── switchable.yaml            # switchable constraints (NOT YET IMPLEMENTED)
+│   └── eval_dataset/
+│       ├── synthetic.yaml
+│       ├── intel.yaml
+│       ├── m3500.yaml
+│       └── sphere2500.yaml
 │
 ├── data/
 │   ├── raw/                           # downloaded .g2o benchmarks — held out, eval-only
@@ -117,6 +132,7 @@ edgegate-slam/
 │   ├── data/
 │   │   ├── g2o_io.py                  # parse/write .g2o format
 │   │   ├── synthetic_generator.py
+│   │   ├── outlier_injection.py       # standalone LC injection with labels
 │   │   └── graph_builder.py           # PoseGraph -> PyG Data
 │   │
 │   ├── models/
@@ -140,12 +156,18 @@ edgegate-slam/
 │   │   └── rerun_logger.py            # reads persisted logs, writes to Rerun
 │   │
 │   └── training/
-│       └── trainer.py                 # plain PyTorch loop, Hydra cfg, wandb + JSON logging
+│       ├── trainer.py                 # plain PyTorch loop, Hydra cfg, wandb + JSON logging
+│       └── evaluate.py                # shared eval utilities (imported by trainer + evaluate script)
 │
 ├── tests/
 │   ├── test_g2o_io.py
 │   ├── test_graph_builder.py
-│   └── test_solvers.py                # pypose_solver vs gtsam_solver must agree on outlier-free graphs
+│   ├── test_outlier_injection.py
+│   ├── test_losses.py
+│   ├── test_metrics.py
+│   ├── test_models.py
+│   ├── test_evaluate_utils.py
+│   └── test_solvers.py                # solver agreement + GNC/DCS kernel tests
 │
 └── runs/                              # gitignored: Hydra output dirs, checkpoints, persisted logs
 ```
