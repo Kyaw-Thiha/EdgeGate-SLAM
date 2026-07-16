@@ -14,7 +14,7 @@ pixi install
 pixi install -e cpu
 ```
 
-**Install spike (do this before writing code):** confirm GTSAM + PyPose + PyG resolve together cleanly:
+**Verify install** before writing code:
 
 ```bash
 pixi run python -c "import gtsam, pypose, torch_geometric; print('ok')"
@@ -22,47 +22,106 @@ pixi run python -c "import gtsam, pypose, torch_geometric; print('ok')"
 
 If the PyG CUDA extension index URL in `pixi.toml` needs updating (the exact PyTorch version that resolves may differ), adjust the `extra-index-urls` line under `[feature.gpu.pypi-options]` to match.
 
-## Common commands
+## Quickstart — Phase 0 (BCE training)
 
 ```bash
-# Run tests (cpu env is sufficient)
-pixi run -e cpu test
-
-# Generate synthetic training graphs
-pixi run gen-synthetic
-
-# Download real benchmarks (Intel, M3500, Sphere2500, parking-garage)
+# 1. Download real benchmark datasets (held out, eval-only)
 pixi run download-benchmarks
 
-# Train (uses default gpu env)
+# 2. Run tests (sanity check)
+pixi run -e cpu test
+
+# 3. Preview synthetic data generation (optional)
+pixi run gen-synthetic
+
+# 4. Train the GNN with BCE loss on synthetic data
 pixi run train
 
-# Evaluate — GNN vs. classical baselines (GNC, DCS)
-pixi run evaluate
+# 5. Evaluate learned model on synthetic test graphs
+pixi run evaluate eval_mode.dataset=synthetic
 
-# Evaluate with specific method
-pixi run evaluate eval_method=learned  eval_mode.checkpoint_path=model_best.pt
-pixi run evaluate eval_method=uniform
-pixi run evaluate eval_method=gnc
-pixi run evaluate eval_method=dcs
+# 6. Evaluate learned model on real benchmarks (with injected outliers)
+pixi run evaluate eval_mode.dataset=intel
+pixi run evaluate eval_mode.dataset=m3500
 
-# Evaluate on synthetic test graphs (separate seed from training)
-pixi run evaluate eval_mode.num_test_graphs=20 eval_mode.test_seed=999
+# 7. Evaluate classical baselines (uniform, GNC, DCS) for comparison
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=uniform solver=gtsam solver.kernel=none
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=gnc
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=dcs
+```
 
-# Evaluate on real benchmark (requires .g2o file in data/raw/)
-pixi run evaluate eval_mode.dataset=intel eval_mode.inject_outliers=true
+## Full Evaluation Plan
 
-# Aggregate sweep results into comparison table
-pixi run evaluate eval_mode=aggregate eval_mode.sweep_glob="runs/sweep_*"
+Per `docs/EdgeGate_SLAM_Research_Proposal.md` §8, the primary research contribution is a
+**synthetic-to-real generalization-gap study**, not raw classification accuracy.
 
-# Visualize a past run with Rerun
-pixi run demo-rerun
+| Step | What | Command |
+|------|------|---------|
+| Train | BCE on synthetic (default: 50 poses, 30% outliers) | `pixi run train` |
+| Synth eval | GNN vs. uniform/GNC/DCS on synthetic test graphs | `pixi run evaluate eval_mode.dataset=synthetic eval_method.method=<name>` |
+| Outlier sweep | Train across outlier rates 10-90% | `pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered` |
+| Real eval (once) | Report on held-out benchmarks **exactly once per model version** | `pixi run evaluate eval_mode.dataset=<intel,m3500,mit,csail,manhattan,city10000>` |
+| Sweep aggregate | Collect sweep results into comparison CSV | `pixi run evaluate eval_mode.mode=aggregate` |
+
+**Real benchmarks are eval-only.** Never used during training or hyperparameter tuning.
+Results are reported once per model version — iterative reporting silently turns them into
+a validation set and invalidates the generalization-gap claim.
+
+### Available benchmarks (all in `data/raw/`)
+
+| Dataset | Nodes | Edges | GT poses? | Source |
+|---------|-------|-------|-----------|--------|
+| intel | 1,728 | 2,512 | No (real robot log) | SE-Sync |
+| M3500 | 3,500 | 5,453 | Yes (simulated) | Carlone |
+| M3500a | 3,500 | 5,453 | Yes (simulated, +0.1rad noise) | Carlone |
+| MIT | 808 | 827 | No (real robot log) | SE-Sync |
+| CSAIL | 1,045 | 1,172 | No (real robot log) | SE-Sync |
+| manhattan | 3,500 | 5,453 | Yes (simulated) | SE-Sync |
+| city10000 | 10,000 | 20,687 | Yes (simulated) | SE-Sync |
+| sphere2500 | — | — | SE(3) — deferred to Phase 2 | SE-Sync |
+| parking-garage | — | — | SE(3) — deferred to Phase 2 | SE-Sync |
+
+Phase 1 adds domain-shift characterization metrics (outlier-rate/structure mismatch,
+edge-type ratio mismatch, noise-scale mismatch) — computed once per benchmark, reported
+alongside degradation numbers. See `docs/implementation_details.md` §"Domain-Shift
+Characterization Metrics".
+
+## Common Commands
+
+```bash
+# Run tests
+pixi run -e cpu test
+
+# Generate synthetic training graphs (Hydra-configurable)
+pixi run gen-synthetic
+pixi run gen-synthetic data.num_poses=100 data.outlier_rate=50
+
+# Download real benchmarks (skips existing files; --extras for SE(3) + M3500a)
+pixi run download-benchmarks
+
+# Train
+pixi run train
+pixi run train train.epochs=200 train.lr=5e-4          # custom LR/epochs
+pixi run train loss=trajectory                          # trajectory loss (requires solver)
+pixi run train data.outlier_rate=50 data.outlier_structure=clustered
+
+# Evaluate — learned model (default)
+pixi run evaluate eval_mode.dataset=synthetic
+pixi run evaluate eval_mode.dataset=intel
+
+# Evaluate — classical baselines (no GNN needed)
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=uniform solver=gtsam solver.kernel=none
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=gnc
+pixi run evaluate eval_mode.dataset=synthetic eval_method.method=dcs
 
 # Hydra multirun — outlier-rate sweep
 pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered
 
 # Hydra multirun — solver-iterations sweep (trajectory-loss ablation)
 pixi run train --multirun train.solver_train_iterations=1,3,5,10,20
+
+# Visualize a past run with Rerun (not yet implemented)
+pixi run demo-rerun
 ```
 
 ## Project layout
@@ -109,7 +168,12 @@ edgegate-slam/
 │       ├── synthetic.yaml
 │       ├── intel.yaml
 │       ├── m3500.yaml
-│       └── sphere2500.yaml
+│       ├── mit.yaml
+│       ├── csail.yaml
+│       ├── manhattan.yaml
+│       ├── city10000.yaml
+│       ├── parking-garage.yaml
+│       └── sphere2500.yaml            # SE(3) — deferred to Phase 2
 │
 ├── data/
 │   ├── raw/                           # downloaded .g2o benchmarks — held out, eval-only
@@ -119,7 +183,8 @@ edgegate-slam/
 ├── docs/
 │   ├── EdgeGate_SLAM_Research_Proposal.md
 │   ├── architecture.md
-│   └── implementation_details.md
+│   ├── implementation_details.md
+│   └── GNN.md
 │
 ├── scripts/
 │   ├── download_benchmarks.py
@@ -130,7 +195,9 @@ edgegate-slam/
 │
 ├── edgegate/
 │   ├── data/
+│   │   ├── types.py                   # PoseGraph dataclass
 │   │   ├── g2o_io.py                  # parse/write .g2o format
+│   │   ├── se2_utils.py               # SE(2) compose / inverse_compose / angle_wrap
 │   │   ├── synthetic_generator.py
 │   │   ├── outlier_injection.py       # standalone LC injection with labels
 │   │   └── graph_builder.py           # PoseGraph -> PyG Data

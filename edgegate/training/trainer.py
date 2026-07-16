@@ -54,6 +54,7 @@ def _generate_data(cfg: DictConfig) -> tuple[list, list]:
         "num_loop_closures": cfg.data.num_loop_closures,
         "outlier_rate": cfg.data.outlier_rate,
         "outlier_structure": cfg.data.outlier_structure,
+        "segment_length": cfg.data.get("segment_length", 5),
         "proximity_threshold": cfg.data.get("proximity_threshold", 2.0),
     }
 

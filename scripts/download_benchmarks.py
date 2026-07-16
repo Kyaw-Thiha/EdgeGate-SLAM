@@ -12,7 +12,7 @@ DATASETS = {
         "filename": "intel.g2o",
     },
     "m3500": {
-        "url": "https://www.dropbox.com/s/gmdzo74b3tzvbrw/input_M3500_g2o.g2o?dl=1",
+        "url": "https://dl.dropboxusercontent.com/s/gmdzo74b3tzvbrw/input_M3500_g2o.g2o",
         "filename": "M3500.g2o",
     },
     "mit": {
@@ -44,7 +44,7 @@ EXTRAS = {
         "note": "SE(3) quaternion — not usable until SE3 parser is added (Phase 2)",
     },
     "m3500a": {
-        "url": "https://www.dropbox.com/s/m9e866tdr2jlhf6/input_M3500a_g2o.g2o?dl=1",
+        "url": "https://dl.dropboxusercontent.com/s/m9e866tdr2jlhf6/input_M3500a_g2o.g2o",
         "filename": "M3500a.g2o",
         "note": "M3500 variant with 0.1rad extra noise on orientations",
     },

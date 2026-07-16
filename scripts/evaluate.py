@@ -53,6 +53,7 @@ def _load_synthetic(cfg: DictConfig) -> list:
         "num_loop_closures": data_cfg.get("num_loop_closures", 20),
         "outlier_rate": data_cfg.get("outlier_rate", 30),
         "outlier_structure": data_cfg.get("outlier_structure", "random"),
+        "segment_length": data_cfg.get("segment_length", 5),
         "proximity_threshold": data_cfg.get("proximity_threshold", 2.0),
     }
     n = cfg.eval_mode.get("num_test_graphs", 20)
