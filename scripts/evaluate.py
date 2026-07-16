@@ -24,8 +24,17 @@ from edgegate.training.evaluate import (
 _BENCHMARK_PATHS = {
     "intel": "data/raw/intel.g2o",
     "m3500": "data/raw/M3500.g2o",
-    "sphere2500": "data/raw/sphere2500.g2o",
+    "mit": "data/raw/MIT.g2o",
+    "csail": "data/raw/CSAIL.g2o",
+    "manhattan": "data/raw/manhattan.g2o",
+    "city10000": "data/raw/city10000.g2o",
+    "parking-garage": "data/raw/parking-garage.g2o",
 }
+
+# sphere2500 and parking-garage from SE-Sync are SE(3) quaternion format — not
+# parseable by the SE(2)-only g2o_io.py parser. Deferred to Phase 2 (SE3 extension).
+# See docs/implementation_details.md §"Future Work" and the SE3 extension plan.
+_SE3_DATASETS = {"sphere2500", "parking-garage"}
 
 
 def _seed(seed: int) -> None:
@@ -53,6 +62,13 @@ def _load_synthetic(cfg: DictConfig) -> list:
 
 def _load_benchmark(cfg: DictConfig) -> list:
     ds_name = cfg.eval_mode.get("dataset", "")
+    if ds_name in _SE3_DATASETS:
+        warnings.warn(
+            f"'{ds_name}' is an SE(3) dataset. The current g2o_io.py parser only "
+            f"supports VERTEX_SE2/EDGE_SE2 format — SE(3) QUAT parsing is deferred "
+            f"to Phase 2. Skipping evaluation on {ds_name}."
+        )
+        return []
     path = _BENCHMARK_PATHS.get(ds_name, "")
     if not path or not Path(path).exists():
         warnings.warn(f"Benchmark file not found: {path} — skipping.")
