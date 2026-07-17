@@ -49,7 +49,7 @@ EXTRAS = {
         "note": "M3500 variant with 0.1rad extra noise on orientations",
     },
     "intel-raw": {
-        "url": "http://www.ipb.uni-bonn.de/datasets/intel.log.gz",
+        "url": "http://www2.informatik.uni-freiburg.de/~stachnis/datasets/datasets/intel-lab/intel.log.gz",
         "filename": "intel.log.gz",
         "note": "Intel Carmen raw log (gzipped) — needed for laser scan overlay in demo_rerun.py",
     },

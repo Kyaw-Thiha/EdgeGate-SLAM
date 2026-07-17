@@ -54,9 +54,8 @@ def _run_live(args: argparse.Namespace) -> None:
     poses, _, _, _ = solver.solve(graph, conf_tensor, max_iterations=None)
     poses_np = poses.cpu().numpy()
 
-    rec = rr.new_recording(
-        application_id="edgegate-slam-live", spawn=True, make_default=True
-    )
+    rec = rr.RecordingStream(application_id="edgegate-slam-live", make_default=True)
+    rec.spawn()
 
     log_pose_graph(graph, poses_np, confidence, epoch=0, rec=rec)
 
@@ -87,18 +86,8 @@ def _run_compare(args: argparse.Namespace) -> None:
         graph_idx=args.graph_idx,
         spawn=True,
         save_rrd=args.save_rrd,
+        carmen_log_path=args.laser,
     )
-
-    if args.laser and method_dirs:
-        # Load poses from first method for laser scan background
-        import numpy as np
-        from pathlib import Path
-        first_dir = next(iter(method_dirs.values()))
-        poses_path = Path(first_dir) / "per_graph" / f"graph_{args.graph_idx:03d}" / "poses.npy"
-        if poses_path.exists():
-            import rerun as rr
-            poses = np.load(str(poses_path))
-            log_laser_scans(args.laser, poses)
 
 
 def main() -> None:

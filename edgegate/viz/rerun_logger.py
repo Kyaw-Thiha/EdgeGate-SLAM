@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import math
 from pathlib import Path
@@ -17,6 +18,23 @@ def _conf_to_color(c: float) -> tuple[int, int, int]:
     return (r, g, 50)
 
 
+def _conf_to_method_color(
+    c: float, method_color: tuple[int, int, int]
+) -> tuple[int, int, int]:
+    """Per-panel LC edge color: crimson=rejected, method color=accepted.
+
+    Blends from crimson (conf=0) to the method's pastel hue (conf=1) so each
+    panel's accepted edges are instantly recognisable by method color.
+    """
+    r0, g0, b0 = 200, 40, 60      # crimson for rejected
+    r1, g1, b1 = method_color
+    return (
+        int(r0 + (r1 - r0) * c),
+        int(g0 + (g1 - g0) * c),
+        int(b0 + (b1 - b0) * c),
+    )
+
+
 def _log(rec: Optional[RecordingStream], entity: str, component) -> None:
     if rec is not None:
         rec.log(entity, component)
@@ -25,10 +43,7 @@ def _log(rec: Optional[RecordingStream], entity: str, component) -> None:
 
 
 def _set_time(rec: Optional[RecordingStream], epoch: int) -> None:
-    if rec is not None:
-        rec.set_time_sequence("epoch", epoch)
-    else:
-        rr.set_time_sequence("epoch", epoch)
+    rr.set_time("epoch", sequence=epoch, recording=rec)
 
 
 def log_pose_graph(
@@ -59,20 +74,20 @@ def log_pose_graph(
     node_init = np.asarray(graph.node_init)
     _log(rec, "trajectory/initial", rr.Points2D(
         positions=node_init[:, :2],
-        colors=np.full((N, 3), [150, 200, 255], dtype=np.uint8),
-        radii=0.08,
+        colors=np.full((N, 3), [120, 160, 210], dtype=np.uint8),
+        radii=0.10,
     ))
     _log(rec, "trajectory/solved", rr.Points2D(
         positions=poses[:, :2],
-        colors=np.full((N, 3), [255, 255, 255], dtype=np.uint8),
-        radii=0.12,
+        colors=np.full((N, 3), [230, 230, 240], dtype=np.uint8),
+        radii=0.16,
     ))
     if graph.gt_node_poses is not None:
         gt = np.asarray(graph.gt_node_poses)
         _log(rec, "trajectory/gt", rr.Points2D(
             positions=gt[:, :2],
-            colors=np.full((N, 3), [100, 220, 100], dtype=np.uint8),
-            radii=0.10,
+            colors=np.full((N, 3), [140, 240, 140], dtype=np.uint8),
+            radii=0.14,
         ))
 
     # ── Edges ─────────────────────────────────────────────────────────────────
@@ -91,18 +106,20 @@ def log_pose_graph(
         ))
 
     if len(lc_idx) > 0:
-        strips = [
-            [poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()]
-            for i in lc_idx
-        ]
-        colors = np.array(
-            [_conf_to_color(float(confidence[i])) for i in lc_idx], dtype=np.uint8
-        )
-        _log(rec, "edges/loop_closure", rr.LineStrips2D(
-            strips=strips,
-            colors=colors,
-            radii=0.03,
-        ))
+        accepted = [i for i in lc_idx if float(confidence[i]) >= 0.5]
+        rejected = [i for i in lc_idx if float(confidence[i]) < 0.5]
+        if accepted:
+            _log(rec, "edges/lc_accepted", rr.LineStrips2D(
+                strips=[[poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()] for i in accepted],
+                colors=(100, 230, 120),   # green
+                radii=0.04,
+            ))
+        if rejected:
+            _log(rec, "edges/lc_rejected", rr.LineStrips2D(
+                strips=[[poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()] for i in rejected],
+                colors=(210, 50, 65),     # crimson
+                radii=0.03,
+            ))
 
     if graph.edge_label is not None:
         edge_label = np.asarray(graph.edge_label)
@@ -130,25 +147,22 @@ def log_metrics(
         metrics_log: list of per-epoch dicts with keys epoch, train_loss, val_f1, val_ate.
         rec: RecordingStream to log to; uses the global stream if None.
     """
-    from rerun.components import ScalarBatch
-    from rerun import TimeSequenceColumn
-
     epochs = np.array([r["epoch"] for r in metrics_log], dtype=np.int64)
-    time_col = TimeSequenceColumn("epoch", epochs)
+    time_col = rr.TimeColumn("epoch", sequence=epochs)
     send = rec.send_columns if rec is not None else rr.send_columns
 
     losses = np.array([r.get("train_loss", float("nan")) for r in metrics_log])
-    send("metrics/train_loss", [time_col], [ScalarBatch(losses)])
+    send("metrics/train_loss", [time_col], rr.Scalars.columns(scalars=losses))
 
     f1_vals = [r.get("val_f1") for r in metrics_log]
     if any(v is not None for v in f1_vals):
         f1_arr = np.array([v if v is not None else float("nan") for v in f1_vals])
-        send("metrics/val_f1", [time_col], [ScalarBatch(f1_arr)])
+        send("metrics/val_f1", [time_col], rr.Scalars.columns(scalars=f1_arr))
 
     ate_vals = [r.get("val_ate") for r in metrics_log]
     if any(v is not None for v in ate_vals):
         ate_arr = np.array([v if v is not None else float("nan") for v in ate_vals])
-        send("metrics/val_ate", [time_col], [ScalarBatch(ate_arr)])
+        send("metrics/val_ate", [time_col], rr.Scalars.columns(scalars=ate_arr))
 
 
 def log_laser_scans(
@@ -174,7 +188,8 @@ def log_laser_scans(
     all_points: list[list[float]] = []
 
     scan_idx = 0
-    with open(carmen_log_path, "r") as fh:
+    opener = gzip.open if str(carmen_log_path).endswith(".gz") else open
+    with opener(carmen_log_path, "rt") as fh:
         for line in fh:
             if not line.startswith("FLASER"):
                 continue
@@ -199,11 +214,10 @@ def log_laser_scans(
     if not all_points:
         return
 
-    _set_time(rec, 0)
     _log(rec, "scans/laser", rr.Points2D(
         positions=np.array(all_points, dtype=np.float32),
-        colors=(180, 180, 180),
-        radii=0.02,
+        colors=(55, 55, 60),
+        radii=0.015,
     ))
 
 
@@ -213,8 +227,12 @@ def log_eval_comparison(
     graph_idx: int = 0,
     spawn: bool = True,
     save_rrd: Optional[str] = None,
+    carmen_log_path: Optional[str] = None,
 ) -> None:
-    """Overlay multiple evaluation methods on the same test graph (paper-figure viz).
+    """Side-by-side panel comparison of evaluation methods (paper-figure viz).
+
+    Each method gets its own Rerun panel showing the laser scan background,
+    GT trajectory, and that method's solved trajectory + LC edge confidence.
 
     Args:
         method_dirs: mapping of method name → Hydra evaluate.py output directory.
@@ -223,18 +241,40 @@ def log_eval_comparison(
         graph_idx: which test graph to visualise.
         spawn: whether to open the Rerun viewer.
         save_rrd: if given, save the recording to this path.
+        carmen_log_path: optional Carmen .log / .log.gz for laser scan background.
     """
-    METHOD_COLORS: dict[str, tuple[int, int, int]] = {
-        "learned": (50,  120, 255),
-        "gnc":     (255, 140,  50),
-        "uniform": (160,  50, 220),
-        "dcs":     ( 50, 200, 180),
-    }
-    DEFAULT_COLOR = (200, 200, 200)
+    import rerun.blueprint as rrb
 
-    rec = rr.new_recording(
-        application_id="edgegate-eval-compare", spawn=spawn, make_default=True
-    )
+    # Node colors — medium pastels
+    METHOD_COLORS: dict[str, tuple[int, int, int]] = {
+        "learned": (100, 160, 240),   # pastel blue
+        "gnc":     (240, 175,  85),   # pastel amber
+        "uniform": (185, 125, 245),   # pastel violet
+        "dcs":     ( 80, 215, 175),   # pastel teal
+    }
+    # LC accepted colors — warm/complementary hues vs the cool node palette
+    # so accepted edges pop clearly against the trajectory dots
+    METHOD_LC_COLORS: dict[str, tuple[int, int, int]] = {
+        "learned": (255, 190,  80),   # warm amber  — against blue nodes
+        "gnc":     (100, 230, 255),   # cool cyan   — against amber nodes
+        "uniform": (180, 255,  90),   # lime green  — against violet nodes
+        "dcs":     (255, 140, 185),   # warm pink   — against teal nodes
+    }
+    LC_REJECTED_COLOR: tuple[int, int, int] = (210, 50, 65)   # crimson
+    DEFAULT_COLOR = (210, 210, 210)
+    CONF_THRESHOLD = 0.5  # confidence boundary between accepted and rejected
+
+    # Build blueprint after entities are logged so Rerun resolves paths correctly.
+    # Layout: left column = overview of all methods; right column = one panel per method.
+    method_names = list(method_dirs.keys())
+
+    rec = rr.RecordingStream(application_id="edgegate-eval-compare", make_default=True)
+    if spawn:
+        rec.spawn()
+
+    # Log everything without a timeline — compare mode is a static snapshot.
+    # Call reset_time so no stray epoch dimension causes entities to vanish.
+    rec.reset_time()
 
     first_dir = next(iter(method_dirs.values()))
     graph_info = json.loads((Path(first_dir) / "graph_info.json").read_text())
@@ -245,13 +285,15 @@ def log_eval_comparison(
         gt = np.array(gt_raw)
         rr.log("trajectory/gt", rr.Points2D(
             positions=gt[:, :2],
-            colors=(100, 220, 100),
-            radii=0.10,
+            colors=(140, 240, 140),
+            radii=0.18,
         ))
 
     graph_subdir = f"graph_{graph_idx:03d}"
+    odom_idx = np.where(edge_type == 0)[0]
     lc_idx = np.where(edge_type == 1)[0]
 
+    first_poses: Optional[np.ndarray] = None
     for method_name, method_dir in method_dirs.items():
         poses_path = Path(method_dir) / "per_graph" / graph_subdir / "poses.npy"
         conf_path = Path(method_dir) / "per_graph" / graph_subdir / "confidence.npy"
@@ -260,24 +302,75 @@ def log_eval_comparison(
             continue
         poses = np.load(str(poses_path))
         confidence = np.load(str(conf_path))
+        if first_poses is None:
+            first_poses = poses
         color = METHOD_COLORS.get(method_name, DEFAULT_COLOR)
+        lc_color = METHOD_LC_COLORS.get(method_name, DEFAULT_COLOR)
 
-        rr.log(f"methods/{method_name}/trajectory", rr.Points2D(
+        rr.log(f"methods/{method_name}/nodes", rr.Points2D(
             positions=poses[:, :2],
             colors=color,
-            radii=0.12,
+            radii=0.20,
         ))
-        if len(lc_idx) > 0:
-            strips = [
+        if len(odom_idx) > 0:
+            odom_strips = [
                 [poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()]
-                for i in lc_idx
+                for i in odom_idx
             ]
-            colors = np.array(
-                [_conf_to_color(float(confidence[i])) for i in lc_idx], dtype=np.uint8
-            )
-            rr.log(f"methods/{method_name}/edges", rr.LineStrips2D(
-                strips=strips, colors=colors, radii=0.03,
+            path_color = tuple(max(0, c - 30) for c in color)
+            rr.log(f"methods/{method_name}/path", rr.LineStrips2D(
+                strips=odom_strips, colors=path_color, radii=0.04,
             ))
+
+        if len(lc_idx) > 0:
+            accepted = [i for i in lc_idx if float(confidence[i]) >= CONF_THRESHOLD]
+            rejected = [i for i in lc_idx if float(confidence[i]) < CONF_THRESHOLD]
+
+            if accepted:
+                strips = [
+                    [poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()]
+                    for i in accepted
+                ]
+                rr.log(f"methods/{method_name}/lc_accepted", rr.LineStrips2D(
+                    strips=strips, colors=lc_color, radii=0.06,
+                ))
+            if rejected:
+                strips = [
+                    [poses[edge_index[0, i], :2].tolist(), poses[edge_index[1, i], :2].tolist()]
+                    for i in rejected
+                ]
+                rr.log(f"methods/{method_name}/lc_rejected", rr.LineStrips2D(
+                    strips=strips, colors=LC_REJECTED_COLOR, radii=0.04,
+                ))
+
+    if carmen_log_path is not None and first_poses is not None:
+        log_laser_scans(carmen_log_path, first_poses, rec=rec)
+
+    # Send blueprint after all entities exist so path resolution is reliable.
+    # Use absolute paths (leading /) to avoid origin-relative ambiguity.
+    # Horizontal: left = overview (full height), right = stacked per-method panels.
+    shared = ["/scans/laser", "/trajectory/gt"]
+    method_panels = [
+        rrb.Spatial2DView(
+            name=name.upper(),
+            contents=shared + [f"/methods/{name}/**"],
+        )
+        for name in method_names
+    ]
+    overview_panel = rrb.Spatial2DView(
+        name="ALL METHODS",
+        contents=["/scans/laser", "/trajectory/gt", "/methods/**"],
+    )
+    blueprint = rrb.Blueprint(
+        rrb.Horizontal(
+            overview_panel,
+            rrb.Vertical(*method_panels),
+            column_shares=[2, 1],
+        ),
+        auto_views=False,
+        collapse_panels=False,
+    )
+    rec.send_blueprint(blueprint, make_active=True, make_default=True)
 
     if save_rrd is not None:
         rec.save(save_rrd)
@@ -302,9 +395,9 @@ def log_run(
     from edgegate.data.types import PoseGraph
 
     run_path = Path(run_dir)
-    rec = rr.new_recording(
-        application_id="edgegate-slam", spawn=spawn, make_default=True
-    )
+    rec = rr.RecordingStream(application_id="edgegate-slam", make_default=True)
+    if spawn:
+        rec.spawn()
 
     graph_info_path = run_path / "graph_info.json"
     if not graph_info_path.exists():
