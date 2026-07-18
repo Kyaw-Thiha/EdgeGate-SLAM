@@ -96,7 +96,9 @@ def test_inlier_pairs_are_proximal():
     for k in range(lc_edges.shape[1]):
         i, j = lc_edges[0, k], lc_edges[1, k]
         dist = np.linalg.norm(ref[i, :2] - ref[j, :2])
-        assert dist < 2.0
+        # KD-tree query_pairs uses <= r (inclusive), old code used strict <.
+        # Tolerance of 1e-6 handles floating-point boundary pairs.
+        assert dist <= 2.0 + 1e-6
 
 
 def test_outlier_pairs_are_distant():
@@ -195,3 +197,49 @@ def test_insufficient_candidates_raises():
             outlier_structure="random", rng=rng,
             proximity_threshold=0.1, min_gap=1,
         )
+
+
+# ── Performance and correctness regression tests for O(N log N) fix ──────────
+
+def test_large_N_outlier_only_completes_fast():
+    """N=5000 all-outlier injection must complete quickly without OOM.
+
+    The old np.triu_indices(5000) allocated ~300 MB for this case; at
+    N=10000 it OOM-killed the process. The new random-sampling distant-pairs
+    path allocates O(n_sample) memory regardless of N.
+    """
+    import time
+    rng = np.random.default_rng(42)
+    # Straight trajectory: all pairs are distant from each other.
+    poses = _make_straight_trajectory(5000)
+    t0 = time.monotonic()
+    edges, meas, labels = inject_labeled_loop_closures(
+        reference_poses=poses,
+        num_loop_closures=20,
+        outlier_rate=100,   # no inlier pairs needed — exercises _distant_pairs
+        outlier_structure="random",
+        rng=rng,
+        outlier_distance_threshold=10.0,
+    )
+    elapsed = time.monotonic() - t0
+    assert elapsed < 5.0, f"Took {elapsed:.1f}s — O(N²) path not fixed"
+    assert edges.shape[1] == 20
+    assert np.all(labels == 0.0)
+
+
+def test_exact_label_counts():
+    """With outlier_rate=50 and 20 LCs: exactly 10 inliers and 10 outliers."""
+    rng = np.random.default_rng(11)
+    poses = _make_straight_trajectory(200)
+    _, _, labels = inject_labeled_loop_closures(
+        reference_poses=poses,
+        num_loop_closures=20,
+        outlier_rate=50,
+        outlier_structure="random",
+        rng=rng,
+        # spacing=1.0, so pairs with gap 5..9 are within 2..9 units
+        proximity_threshold=10.0,
+        outlier_distance_threshold=20.0,
+    )
+    assert int((labels == 1.0).sum()) == 10
+    assert int((labels == 0.0).sum()) == 10

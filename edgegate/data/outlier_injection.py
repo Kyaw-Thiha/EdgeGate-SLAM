@@ -1,17 +1,51 @@
 from __future__ import annotations
 import warnings
 import numpy as np
+from scipy.spatial import cKDTree
 from edgegate.data.se2_utils import inverse_compose, angle_wrap
 
 
-def _candidate_pairs(
-    poses: np.ndarray, min_gap: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Upper-triangular pose pairs with j - i >= min_gap and their Euclidean distances."""
+def _proximal_pairs(
+    poses: np.ndarray, min_gap: int, proximity_threshold: float
+) -> list[tuple[int, int]]:
+    """Pose pairs within proximity_threshold with index gap >= min_gap. O(N log N + output)."""
+    tree = cKDTree(poses[:, :2])
+    result = []
+    for i, j in tree.query_pairs(r=proximity_threshold):
+        lo, hi = (i, j) if i < j else (j, i)
+        if hi - lo >= min_gap:
+            result.append((lo, hi))
+    result.sort()
+    return result
+
+
+def _distant_pairs(
+    poses: np.ndarray,
+    min_gap: int,
+    outlier_distance_threshold: float,
+    n_needed: int,
+    rng: np.random.Generator,
+) -> list[tuple[int, int]]:
+    """Random-sample candidate pairs beyond outlier_distance_threshold. O(n_sample)."""
+    if n_needed == 0:
+        return []
     N = len(poses)
-    ii, jj = np.triu_indices(N, k=min_gap)
-    dists = np.linalg.norm(poses[ii, :2] - poses[jj, :2], axis=-1)
-    return ii, jj, dists
+    n_sample = min(max(n_needed * 20, 2000), N * (N - 1) // 2)
+    # Draw i uniformly from [0, N-min_gap); j from [i+min_gap, N-1]
+    i_arr = rng.integers(0, N - min_gap, size=n_sample)
+    max_offset = (N - min_gap - i_arr).astype(np.int64)  # always >= 1
+    offsets = (rng.random(n_sample) * max_offset).astype(np.int64)
+    j_arr = i_arr + min_gap + offsets
+    dists = np.linalg.norm(poses[i_arr, :2] - poses[j_arr, :2], axis=-1)
+    mask = dists > outlier_distance_threshold
+    seen: set[tuple[int, int]] = set()
+    result = []
+    for i, j in zip(i_arr[mask].tolist(), j_arr[mask].tolist()):
+        pair = (int(i), int(j))
+        if pair not in seen:
+            seen.add(pair)
+            result.append(pair)
+    return result
 
 
 def _sample_n(
@@ -68,18 +102,14 @@ def inject_labeled_loop_closures(
     inlier_noise = np.array(inlier_noise_std)
     N = reference_poses.shape[0]
 
-    ii, jj, dists = _candidate_pairs(reference_poses, min_gap)
-    proximal_pairs = [
-        (int(ii[k]), int(jj[k]))
-        for k in np.where(dists < proximity_threshold)[0]
-    ]
-    distant_pairs = [
-        (int(ii[k]), int(jj[k]))
-        for k in np.where(dists > outlier_distance_threshold)[0]
-    ]
-
     num_outliers = int(round(num_loop_closures * outlier_rate / 100.0))
     num_inliers = num_loop_closures - num_outliers
+
+    proximal_pairs = _proximal_pairs(reference_poses, min_gap, proximity_threshold)
+    distant_pairs = _distant_pairs(
+        reference_poses, min_gap, outlier_distance_threshold,
+        n_needed=num_outliers, rng=rng,
+    )
 
     inlier_pairs = (
         _sample_n(proximal_pairs, num_inliers, rng) if num_inliers > 0 else []
