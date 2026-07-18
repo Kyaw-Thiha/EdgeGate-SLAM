@@ -45,7 +45,7 @@ SWEEP_PARAMS = [
 ]
 
 SYNTH_DATASETS = ["synthetic"]
-REAL_DATASETS = ["intel", "m3500", "mit", "csail", "manhattan", "city10000"]
+REAL_DATASETS = ["intel", "m3500", "mit", "csail", "city10000"]  # dropped manhattan (M3500 duplicate)
 ALL_DATASETS = SYNTH_DATASETS + REAL_DATASETS
 
 BASELINES = [
@@ -76,8 +76,15 @@ def _run(cmd_list: list[str], cwd: Path = ROOT) -> bool:
     return True
 
 
-def train_models(sweep_dir: Path, epochs: int, rates: list[int] | None = None) -> list[tuple[str, Path]]:
-    """Train one model per (outlier_rate, structure) combo. Returns (label, model_dir) pairs."""
+def train_models(
+    sweep_dir: Path,
+    epochs: int,
+    rates: list[int] | None = None,
+    seeds: list[int] | None = None,
+) -> list[tuple[str, Path]]:
+    """Train one model per (outlier_rate, structure, seed) combo. Returns (label, model_dir) pairs."""
+    if seeds is None:
+        seeds = [0]
     _sep("STEP 1: Training sweep")
     models: list[tuple[str, Path]] = []
     train_dir = sweep_dir / "train"
@@ -86,22 +93,25 @@ def train_models(sweep_dir: Path, epochs: int, rates: list[int] | None = None) -
     for rate, structure in SWEEP_PARAMS:
         if rates and rate not in rates:
             continue
-        label = f"{rate}pct_{structure}"
-        out_dir = train_dir / label
-        cmd = [
-            "pixi", "run", "train",
-            f"train.epochs={epochs}",
-            f"data.outlier_rate={rate}",
-            f"data.outlier_structure={structure}",
-            f"hydra.run.dir={out_dir}",
-        ]
-        if _run(cmd):
-            models.append((label, out_dir))
-        else:
-            print(f"  WARNING: training failed for {label}, skipping downstream evals", file=sys.stderr)
-        print()
+        for seed in seeds:
+            label = f"{rate}pct_{structure}_seed{seed}"
+            out_dir = train_dir / label
+            cmd = [
+                "pixi", "run", "train",
+                f"train.epochs={epochs}",
+                f"data.outlier_rate={rate}",
+                f"data.outlier_structure={structure}",
+                f"train.seed={seed}",
+                f"hydra.run.dir={out_dir}",
+            ]
+            if _run(cmd):
+                models.append((label, out_dir))
+            else:
+                print(f"  WARNING: training failed for {label}, skipping downstream evals",
+                      file=sys.stderr)
+            print()
 
-    print(f"Trained {len(models)}/{len(SWEEP_PARAMS)} models → {train_dir}/")
+    print(f"Trained {len(models)}/{len(SWEEP_PARAMS) * len(seeds)} models → {train_dir}/")
     return models
 
 
@@ -170,12 +180,85 @@ def aggregate(sweep_dir: Path) -> None:
 
     csv_path = sweep_dir / "results.csv"
     keys = ["category", "model", "dataset", "method", "num_graphs",
-            "f1", "precision", "recall", "ate", "tp", "fp", "fn"]
+            "f1", "precision", "recall", "ate", "tp", "fp", "fn",
+            "final_cost", "solve_time_s", "converged_count", "failed_count",
+            "num_iterations_mean"]
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     print(f"Wrote {len(rows)} rows → {csv_path}")
+
+
+def aggregate_ci(sweep_dir: Path, sr_threshold: float = 1.0) -> None:
+    """Compute per-(config, dataset) mean ± std and Success Rate across seeds."""
+    import re
+    import numpy as np
+    from collections import defaultdict
+
+    raw_csv = sweep_dir / "results.csv"
+    if not raw_csv.exists():
+        print("results.csv not found — run aggregate() first.")
+        return
+
+    with open(raw_csv, newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    def _config_key(model_label: str) -> str:
+        # Strip trailing _seed{N} to get the (outlier_rate, structure) key
+        m = re.match(r"(\d+pct_(?:random|clustered))", model_label)
+        return m.group(1) if m else model_label
+
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for row in rows:
+        key = (
+            _config_key(row.get("model", "")),
+            row.get("dataset", ""),
+            row.get("category", ""),
+        )
+        groups[key].append(row)
+
+    NUMERIC = ["f1", "precision", "recall", "ate", "final_cost", "solve_time_s"]
+    ci_rows = []
+    for (config, dataset, category), group in sorted(groups.items()):
+        cr: dict = {
+            "config": config,
+            "dataset": dataset,
+            "category": category,
+            "n_seeds": len(group),
+        }
+        for col in NUMERIC:
+            vals = []
+            for r in group:
+                v = r.get(col)
+                if v not in (None, "", "None"):
+                    try:
+                        vals.append(float(v))
+                    except ValueError:
+                        pass
+            cr[f"mean_{col}"] = float(np.mean(vals)) if vals else None
+            cr[f"std_{col}"] = float(np.std(vals)) if vals else None
+        ate_vals = [
+            float(r["ate"]) for r in group
+            if r.get("ate") not in (None, "", "None")
+        ]
+        cr["success_rate"] = (
+            sum(1 for v in ate_vals if v < sr_threshold) / len(ate_vals)
+            if ate_vals else None
+        )
+        ci_rows.append(cr)
+
+    ci_csv = sweep_dir / "results_ci.csv"
+    ci_keys = (
+        ["config", "dataset", "category", "n_seeds", "success_rate"]
+        + [f"{stat}_{col}" for col in NUMERIC for stat in ("mean", "std")]
+    )
+    with open(ci_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=ci_keys, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(ci_rows)
+    print(f"CI summary ({len(ci_rows)} groups, SR threshold={sr_threshold}) → {ci_csv}")
 
 
 def main() -> None:
@@ -185,6 +268,10 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--rates", type=str, default=None,
                         help="comma-separated outlier rates, e.g. 30,50,70")
+    parser.add_argument("--seeds", type=str, default="0",
+                        help="comma-separated training seeds, e.g. 0,1,2")
+    parser.add_argument("--sr-threshold", type=float, default=1.0,
+                        help="ATE threshold for Success Rate in results_ci.csv")
     parser.add_argument("--output", type=str, default=None,
                         help="output directory (default: runs/sweep_<timestamp>)")
     args = parser.parse_args()
@@ -197,6 +284,7 @@ def main() -> None:
     sweep_dir.mkdir(parents=True, exist_ok=True)
 
     rates = [int(r) for r in args.rates.split(",")] if args.rates else None
+    seeds = [int(s) for s in args.seeds.split(",")]
 
     # ── Training ─────────────────────────────────────────────────────────────
     if args.skip_train:
@@ -205,16 +293,18 @@ def main() -> None:
         for rate, structure in SWEEP_PARAMS:
             if rates and rate not in rates:
                 continue
-            label = f"{rate}pct_{structure}"
-            model_dir = train_dir / label
-            if (model_dir / "model_best.pt").exists():
-                models.append((label, model_dir))
+            for seed in seeds:
+                label = f"{rate}pct_{structure}_seed{seed}"
+                model_dir = train_dir / label
+                if (model_dir / "model_best.pt").exists():
+                    models.append((label, model_dir))
         print(f"Found {len(models)} existing models in {train_dir}/")
         if not models:
-            print("No existing models found and --skip-train set. Nothing to do.", file=sys.stderr)
+            print("No existing models found and --skip-train set. Nothing to do.",
+                  file=sys.stderr)
             sys.exit(1)
     else:
-        models = train_models(sweep_dir, args.epochs, rates)
+        models = train_models(sweep_dir, args.epochs, rates, seeds)
         if not models:
             print("No models trained successfully.", file=sys.stderr)
             sys.exit(1)
@@ -227,6 +317,7 @@ def main() -> None:
 
     # ── Aggregate ────────────────────────────────────────────────────────────
     aggregate(sweep_dir)
+    aggregate_ci(sweep_dir, sr_threshold=args.sr_threshold)
     print(f"\nDone. Results → {sweep_dir}/")
 
 
