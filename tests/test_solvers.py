@@ -179,6 +179,30 @@ def test_gtsam_dcs_converges_on_clean_graph():
 
 # ── Solver agreement on outlier-free graphs ───────────────────────────────────
 
+def test_gnc_does_not_crash_high_outlier():
+    """GNC must not crash on graph that previously triggered IndeterminantLinearSystem.
+
+    Confirmed crash seed: seed=1005, outlier_rate=30, structure=random.
+    Root cause was GncGaussNewtonOptimizer going singular when its weight
+    schedule zeroed all constraints on a node. Fixed by switching to GncLMOptimizer.
+    """
+    graph = generate(
+        num_poses=100,
+        num_loop_closures=20,
+        outlier_rate=30,
+        outlier_structure="random",
+        segment_length=5,
+        proximity_threshold=3.0,
+        seed=1005,
+    )
+    solver = GTSAMSolver(kernel="gnc")
+    w = torch.ones(graph.edge_index.shape[1])
+    poses, converged, iters, cost = solver.solve(graph, w)
+    assert poses.shape == (100, 3)
+    assert isinstance(cost, float)
+    assert cost >= 0.0
+
+
 @pytest.mark.parametrize("seed", [0, 1, 7])
 def test_pypose_gtsam_agree_on_clean_graph(seed: int):
     """Both solvers must converge and reach equivalent objective values on outlier-free graphs.

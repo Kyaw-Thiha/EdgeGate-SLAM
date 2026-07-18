@@ -102,9 +102,9 @@ class GTSAMSolver(Solver):
             final_cost = float(fg.error(result))
             converged = num_iterations < max_iter
         else:  # gnc
-            params = gtsam.GncGaussNewtonParams()
+            params = gtsam.GncLMParams()
             params.setMaxIterations(max_iter)
-            optimizer = gtsam.GncGaussNewtonOptimizer(fg, initial, params)
+            optimizer = gtsam.GncLMOptimizer(fg, initial, params)
             result = optimizer.optimize()
             num_iterations = -1   # GNC doesn't expose iteration count
             final_cost = float(fg.error(result))
