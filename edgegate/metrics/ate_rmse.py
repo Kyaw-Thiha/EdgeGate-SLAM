@@ -21,11 +21,13 @@ def ate_rmse(poses_est: torch.Tensor, poses_gt: torch.Tensor) -> float:
         RGB-D benchmark protocol (Sturm et al. 2012).
 
     Note on benchmark availability:
-        gt_node_poses (and thus this metric) is only available for the simulated
-        real benchmarks (M3500, Sphere2500). Intel and MIT/CSAIL have no
-        independently-sourced ground-truth trajectory; any "ATE" there is
-        relative to a reference solution, not true ATE. See
-        implementation_details.md §ate_rmse for scoping.
+        No current .g2o benchmark file (including M3500, Sphere2500, Intel, or
+        MIT/CSAIL) has independently-verifiable ground truth — all "GT" in the
+        PGO literature is pseudo-GT: the optimized trajectory of the
+        outlier-free data. For real benchmarks, scripts/evaluate.py computes
+        a clean-solve reference trajectory and stores it as gt_node_poses so
+        this function can report ATE on all datasets. Any ATE on real data is
+        ATE-against-reference-solve, not true ground truth.
 
     Implementation — Umeyama (1991) for 2D positions (SE(2) rigid body):
         1. Centre both trajectories: P_c = P - μ_P,  Q_c = Q - μ_Q
