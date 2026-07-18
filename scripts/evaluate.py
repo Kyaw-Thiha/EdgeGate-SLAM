@@ -83,17 +83,20 @@ def _load_benchmark(cfg: DictConfig) -> list:
 
     graph = load_g2o(path)
 
+    # Always compute ref_poses for ATE (pseudo-GT = outlier-free clean solve).
+    # Real benchmarks have no independently-sourced ground truth; ATE is
+    # ATE-against-reference-solve per implementation_details.md.
+    if graph.gt_node_poses is not None:
+        ref_poses = graph.gt_node_poses
+    else:
+        from edgegate.solvers.gtsam_solver import GTSAMSolver
+        _ref_solver = GTSAMSolver(kernel="none")
+        _ref_w = torch.ones(graph.edge_index.shape[1])
+        _ref_poses_t, _, _, _ = _ref_solver.solve(graph, _ref_w)
+        ref_poses = _ref_poses_t.cpu().numpy()
+
     if cfg.eval_mode.get("inject_outliers", False):
         rng = np.random.default_rng(cfg.eval_mode.get("test_seed", 999))
-
-        if graph.gt_node_poses is not None:
-            ref_poses = graph.gt_node_poses
-        else:
-            from edgegate.solvers.gtsam_solver import GTSAMSolver
-            solver = GTSAMSolver(kernel="none")
-            w = torch.ones(graph.edge_index.shape[1])
-            ref_poses, _, _, _ = solver.solve(graph, w)
-            ref_poses = ref_poses.cpu().numpy()
 
         try:
             lc_edges, lc_meas, lc_labels = inject_labeled_loop_closures(
@@ -109,7 +112,16 @@ def _load_benchmark(cfg: DictConfig) -> list:
                 f"have enough proximal/distant pairs. Returning graph without injected "
                 f"labels (F1 will be N/A)."
             )
-            return [graph]
+            from edgegate.data.types import PoseGraph
+            return [PoseGraph(
+                node_init=graph.node_init,
+                edge_index=graph.edge_index,
+                edge_measurement=graph.edge_measurement,
+                edge_info=graph.edge_info,
+                edge_type=graph.edge_type,
+                edge_label=graph.edge_label,
+                gt_node_poses=ref_poses,
+            )]
 
         E_existing = graph.edge_index.shape[1]
         E_new = lc_edges.shape[1]
@@ -133,17 +145,27 @@ def _load_benchmark(cfg: DictConfig) -> list:
         new_label[E_existing:] = lc_labels
 
         from edgegate.data.types import PoseGraph
-        graph = PoseGraph(
+        return [PoseGraph(
             node_init=graph.node_init,
             edge_index=new_idx,
             edge_measurement=new_meas,
             edge_info=new_info,
             edge_type=new_type,
             edge_label=new_label,
-            gt_node_poses=graph.gt_node_poses,
-        )
+            gt_node_poses=ref_poses,  # was graph.gt_node_poses (= None for real benchmarks)
+        )]
 
-    return [graph]
+    # No injection — still patch ref_poses in for downstream ATE computation
+    from edgegate.data.types import PoseGraph
+    return [PoseGraph(
+        node_init=graph.node_init,
+        edge_index=graph.edge_index,
+        edge_measurement=graph.edge_measurement,
+        edge_info=graph.edge_info,
+        edge_type=graph.edge_type,
+        edge_label=graph.edge_label,
+        gt_node_poses=ref_poses,
+    )]
 
 
 def _load_data(cfg: DictConfig) -> list:
@@ -259,6 +281,10 @@ def _run_evaluate(cfg: DictConfig) -> None:
             os.makedirs(pg_dir, exist_ok=True)
             np.save(os.path.join(pg_dir, "poses.npy"), r["poses"])
             np.save(os.path.join(pg_dir, "confidence.npy"), r["confidence"])
+            # LC arrays for PR curve generation (Phase 1)
+            if r.get("lc_confidence") is not None and len(r["lc_confidence"]) > 0:
+                np.save(os.path.join(pg_dir, "lc_confidence.npy"), r["lc_confidence"])
+                np.save(os.path.join(pg_dir, "lc_labels.npy"), r["lc_labels"])
             if not graph_info_saved:
                 _save_graph_info(graph, out_dir)
                 graph_info_saved = True
@@ -282,6 +308,13 @@ def _run_evaluate(cfg: DictConfig) -> None:
             print(f"  ATE (RMSE): {agg['ate']:.6f}")
         else:
             print("  ATE       : N/A (no ground truth)")
+        if agg.get("final_cost") is not None:
+            print(f"  Cost F(x) : {agg['final_cost']:.4f}")
+        if agg.get("solve_time_s") is not None:
+            print(f"  Solve time: {agg['solve_time_s'] * 1000:.1f} ms (mean)")
+        print(f"  Converged : {agg.get('converged_count', 0)} / {len(graphs)}")
+        if agg.get("failed_count", 0) > 0:
+            print(f"  Failed    : {agg['failed_count']}")
         print()
 
     if cfg.eval_mode.get("save_per_graph", False):
@@ -315,6 +348,12 @@ def _run_evaluate(cfg: DictConfig) -> None:
             wandb_log["eval/recall"] = agg["recall"]
         if agg["ate"] is not None:
             wandb_log["eval/ate_rmse"] = agg["ate"]
+        if agg.get("final_cost") is not None:
+            wandb_log["eval/final_cost"] = agg["final_cost"]
+        if agg.get("solve_time_s") is not None:
+            wandb_log["eval/solve_time_ms"] = agg["solve_time_s"] * 1000
+        wandb_log["eval/converged_count"] = agg.get("converged_count", 0)
+        wandb_log["eval/failed_count"] = agg.get("failed_count", 0)
         if wandb_log:
             wandb.log(wandb_log)
         wandb.finish()
