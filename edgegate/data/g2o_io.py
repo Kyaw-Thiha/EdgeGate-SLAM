@@ -43,14 +43,26 @@ def load_g2o(path: str | Path) -> PoseGraph:
             [vertices[vid] for vid in sorted_ids], dtype=np.float64
         )
     else:
-        # Edge-only .g2o file — infer vertices from unique edge endpoint IDs.
-        all_ids = set()
+        # Edge-only .g2o file (e.g. CSAIL, manhattan) — no VERTEX_SE2 lines.
+        # Zero-initialising all poses puts every node at the origin, making every
+        # pair "proximal" and no pair "distant" — that breaks outlier injection.
+        # Chain-compose node_init from consecutive odometry edges via SE(2)
+        # dead-reckoning so nodes are spread realistically in space.
+        all_ids: set[int] = set()
         for id1, id2, _, _ in raw_edges:
             all_ids.add(id1)
             all_ids.add(id2)
         sorted_ids = sorted(all_ids)
         id_to_idx = {vid: i for i, vid in enumerate(sorted_ids)}
         node_init = np.zeros((len(sorted_ids), 3), dtype=np.float64)
+        for id1, id2, meas, _ in sorted(raw_edges, key=lambda e: e[0]):
+            if id2 == id1 + 1:  # odometry edge — consecutive IDs
+                i, j = id_to_idx[id1], id_to_idx[id2]
+                x, y, th = node_init[i]
+                dx, dy, dth = meas
+                node_init[j, 0] = x + dx * np.cos(th) - dy * np.sin(th)
+                node_init[j, 1] = y + dx * np.sin(th) + dy * np.cos(th)
+                node_init[j, 2] = th + dth
 
     E = len(raw_edges)
     edge_index = np.empty((2, E), dtype=np.int64)
