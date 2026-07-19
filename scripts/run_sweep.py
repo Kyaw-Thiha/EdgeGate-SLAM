@@ -115,11 +115,12 @@ def train_models(
     return models
 
 
-def eval_learned(sweep_dir: Path, models: list[tuple[str, Path]]) -> None:
+def eval_learned(sweep_dir: Path, models: list[tuple[str, Path]], eval_overrides: str = "") -> None:
     """Evaluate each trained model on synthetic + real benchmarks."""
     _sep("STEP 2: Evaluate learned models")
     eval_dir = sweep_dir / "eval_learned"
 
+    extra = eval_overrides.split() if eval_overrides else []
     for label, model_dir in models:
         for ds in ALL_DATASETS:
             out_path = eval_dir / label / ds
@@ -129,7 +130,7 @@ def eval_learned(sweep_dir: Path, models: list[tuple[str, Path]]) -> None:
                 f"eval_mode.dataset={ds}",
                 f"eval_mode.model_dir={model_dir.resolve()}",
                 f"hydra.run.dir={out_path}",
-            ]
+            ] + extra
             _run(cmd)
         print()
 
@@ -272,6 +273,8 @@ def main() -> None:
                         help="comma-separated training seeds, e.g. 0,1,2")
     parser.add_argument("--sr-threshold", type=float, default=1.0,
                         help="ATE threshold for Success Rate in results_ci.csv")
+    parser.add_argument("--eval-overrides", type=str, default="",
+                        help="extra Hydra overrides for evaluate.py, e.g. 'solver=gtsam solver.kernel=none'")
     parser.add_argument("--output", type=str, default=None,
                         help="output directory (default: runs/sweep_<timestamp>)")
     args = parser.parse_args()
@@ -310,7 +313,7 @@ def main() -> None:
             sys.exit(1)
 
     # ── Evaluation ───────────────────────────────────────────────────────────
-    eval_learned(sweep_dir, models)
+    eval_learned(sweep_dir, models, args.eval_overrides)
 
     if not args.skip_baselines:
         eval_baselines(sweep_dir)
