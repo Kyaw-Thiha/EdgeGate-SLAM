@@ -9,6 +9,14 @@ from edgegate.metrics.ate_rmse import ate_rmse
 from edgegate.solvers.base import Solver
 
 
+def _model_device(model: torch.nn.Module) -> torch.device:
+    """Return the device of a model's first parameter, defaulting to CPU."""
+    try:
+        return next(model.parameters()).device
+    except StopIteration:
+        return torch.device("cpu")
+
+
 def _compute_edge_residuals(
     poses: torch.Tensor,
     edge_index: torch.Tensor,
@@ -65,7 +73,7 @@ def evaluate_one_graph(
     """
     model.eval()
     with torch.no_grad():
-        data = to_pyg(graph)
+        data = to_pyg(graph).to(_model_device(model))
         conf = model(data)
 
         if hasattr(data, "edge_label") and data.edge_label is not None:
@@ -285,7 +293,7 @@ def evaluate_one_graph_hybrid(
 
     model.eval()
     with torch.no_grad():
-        data = to_pyg(graph)
+        data = to_pyg(graph).to(next(model.parameters()).device)
         conf = model(data)
 
     # Classification metrics from GNN

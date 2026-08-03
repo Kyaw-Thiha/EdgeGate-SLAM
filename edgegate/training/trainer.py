@@ -178,7 +178,7 @@ def _save_checkpoint(model, solver, viz_graph, epoch) -> None:
 
     model.eval()
     with torch.no_grad():
-        data = to_pyg(viz_graph)
+        data = to_pyg(viz_graph).to(next(model.parameters()).device)
         conf = model(data)
         poses, converged, iters, cost = solver.solve(
             viz_graph, conf, max_iterations=None
