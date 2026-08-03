@@ -48,14 +48,13 @@ def _distant_pairs(
     return result
 
 
-def _sample_n(
+def _sample_up_to_n(
     pairs: list[tuple[int, int]], n: int, rng: np.random.Generator
 ) -> list[tuple[int, int]]:
-    if len(pairs) < n:
-        raise ValueError(
-            f"Need {n} pairs but only {len(pairs)} candidates available. "
-            "Try increasing num_poses or adjusting proximity/distance thresholds."
-        )
+    if len(pairs) == 0:
+        return []
+    if len(pairs) <= n:
+        return pairs
     idx = rng.choice(len(pairs), size=n, replace=False)
     return [pairs[int(k)] for k in idx]
 
@@ -112,8 +111,9 @@ def inject_labeled_loop_closures(
     )
 
     inlier_pairs = (
-        _sample_n(proximal_pairs, num_inliers, rng) if num_inliers > 0 else []
+        _sample_up_to_n(proximal_pairs, num_inliers, rng) if num_inliers > 0 else []
     )
+    num_inliers = len(inlier_pairs)
 
     if num_outliers > 0:
         if outlier_structure == "clustered":
@@ -128,11 +128,12 @@ def inject_labeled_loop_closures(
                     f"[{t0}, {t0 + window}); falling back to global distant pairs."
                 )
                 windowed = distant_pairs
-            outlier_pairs = _sample_n(windowed, num_outliers, rng)
+            outlier_pairs = _sample_up_to_n(windowed, num_outliers, rng)
         else:
-            outlier_pairs = _sample_n(distant_pairs, num_outliers, rng)
+            outlier_pairs = _sample_up_to_n(distant_pairs, num_outliers, rng)
     else:
         outlier_pairs = []
+    num_outliers = len(outlier_pairs)
 
     total = num_inliers + num_outliers
     lc_edge_index = np.zeros((2, total), dtype=np.int64)

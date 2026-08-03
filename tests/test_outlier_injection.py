@@ -187,16 +187,19 @@ def test_reproducible_with_seed():
     assert np.array_equal(l1, l2)
 
 
-def test_insufficient_candidates_raises():
-    """When there aren't enough proximal pairs, ValueError should be raised."""
+def test_insufficient_candidates_returns_all_available():
+    """When there aren't enough pairs, returns all available without crashing."""
     rng = np.random.default_rng(10)
     ref = _make_straight_trajectory(10)
-    with pytest.raises(ValueError, match="candidates"):
-        inject_labeled_loop_closures(
-            ref, num_loop_closures=100, outlier_rate=0,
-            outlier_structure="random", rng=rng,
-            proximity_threshold=0.1, min_gap=1,
-        )
+    edges, _, labels = inject_labeled_loop_closures(
+        ref, num_loop_closures=100, outlier_rate=0,
+        outlier_structure="random", rng=rng,
+        proximity_threshold=0.1, min_gap=1,
+    )
+    # Should return whatever the grid can support, not crash
+    assert edges.shape[1] < 100
+    assert edges.shape[1] >= 0  # may be 0 if grid is too small for any pair
+    assert (labels == 1.0).all()  # all inliers (outlier_rate=0)
 
 
 # ── Performance and correctness regression tests for O(N log N) fix ──────────
