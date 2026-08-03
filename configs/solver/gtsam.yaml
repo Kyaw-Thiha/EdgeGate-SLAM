@@ -1,2 +1,2 @@
 _target_: edgegate.solvers.gtsam_solver.GTSAMSolver
-kernel: gnc  # gnc | dcs | none
+kernel: none  # none | gnc | dcs

@@ -1,7 +1,7 @@
 defaults:
   - data: synthetic
   - model: edgegate_gnn
-  - solver: pypose
+  - solver: gtsam
   - loss: edge_bce
   - train: default
   - logging: wandb
