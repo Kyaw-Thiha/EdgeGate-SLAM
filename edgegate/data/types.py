@@ -12,4 +12,5 @@ class PoseGraph:
     edge_type: np.ndarray         # (E,) 0=odometry, 1=loop-closure
     edge_label: np.ndarray | None = None      # (E,) ground-truth inlier; synthetic only, None for real data
     gt_node_poses: np.ndarray | None = None  # (N, 3) noise-free trajectory; synthetic only, None for real data
+    edge_residual: np.ndarray | None = None   # (E, 3) per-edge GT residuals [rx, ry, rθ]; synthetic only, None otherwise
     manifold: str = "SE2"         # "SE2" | "SE3" — marker for future extension, not branched on yet

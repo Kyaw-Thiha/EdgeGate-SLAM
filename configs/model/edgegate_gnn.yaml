@@ -2,3 +2,4 @@ _target_: edgegate.models.edgegate_gnn.EdgeGateGNN
 num_layers: 3
 hidden_dim: 64
 dropout: 0.1
+edge_attr_dim: 6              # 6 = default, 9 = with residuals

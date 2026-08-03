@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import time
 import numpy as np
 import torch
@@ -8,16 +9,59 @@ from edgegate.metrics.ate_rmse import ate_rmse
 from edgegate.solvers.base import Solver
 
 
+def _compute_edge_residuals(
+    poses: torch.Tensor,
+    edge_index: torch.Tensor,
+    measurements: np.ndarray,
+) -> torch.Tensor:
+    """Compute per-edge SE(2) residuals between solver output and measurements.
+
+    Args:
+        poses:        (N, 3) optimized poses [x, y, θ] from solver.
+        edge_index:   (2, E) source/dst indices.
+        measurements: (E, 3) raw edge measurements [dx, dy, dθ] (numpy).
+
+    Returns:
+        (E, 3) residuals [rx, ry, rθ] — torch tensor on same device as poses.
+    """
+    E = edge_index.size(1)
+    residuals = torch.zeros(E, 3, dtype=poses.dtype, device=poses.device)
+    meas_t = torch.from_numpy(measurements).float().to(poses.device)
+
+    src, dst = edge_index[0], edge_index[1]
+    dx_w = poses[dst, 0] - poses[src, 0]
+    dy_w = poses[dst, 1] - poses[src, 1]
+    ci, si = torch.cos(poses[src, 2]), torch.sin(poses[src, 2])
+
+    expected_x = ci * dx_w + si * dy_w
+    expected_y = -si * dx_w + ci * dy_w
+    expected_theta = poses[dst, 2] - poses[src, 2]
+    expected_theta = (expected_theta + math.pi) % (2 * math.pi) - math.pi
+
+    residuals[:, 0] = meas_t[:, 0] - expected_x
+    residuals[:, 1] = meas_t[:, 1] - expected_y
+    dtheta = meas_t[:, 2] - expected_theta
+    residuals[:, 2] = (dtheta + math.pi) % (2 * math.pi) - math.pi
+    return residuals
+
+
 def evaluate_one_graph(
     model: torch.nn.Module,
     solver: Solver,
     graph: PoseGraph,
+    residual_iterations: int = 1,
 ) -> dict:
     """Run a single PoseGraph through the GNN + solver pipeline.
 
+    When residual_iterations > 1, performs residual-guided iterative re-weighting:
+    solve → compute per-edge residuals → update edge features → GNN re-predicts
+    → repeat. This gives the GNN the same adaptive feedback loop that GNC/DCS
+    have built into their kernel-based re-weighting.
+
     Returns per-graph counts and metrics:
         tp, fp, fn, ate, poses, confidence, lc_confidence, lc_labels,
-        final_cost, num_iterations, converged, solve_time_s, solver_failed
+        final_cost, num_iterations, converged, solve_time_s, solver_failed,
+        residual_iterations
     """
     model.eval()
     with torch.no_grad():
@@ -25,8 +69,6 @@ def evaluate_one_graph(
         conf = model(data)
 
         if hasattr(data, "edge_label") and data.edge_label is not None:
-            # Exclude sentinel -1.0 labels (existing real-benchmark edges when
-            # outliers are injected on top — those edges have no ground-truth label).
             lc_mask = (data.edge_type == 1) & (data.edge_label >= 0)
             pred = conf[lc_mask] >= 0.5
             label = data.edge_label[lc_mask] >= 0.5
@@ -40,18 +82,42 @@ def evaluate_one_graph(
             lc_confidence = np.array([], dtype=np.float32)
             lc_labels = np.array([], dtype=np.float32)
 
-        t0 = time.monotonic()
-        try:
-            poses, converged, iters, cost = solver.solve(graph, conf, max_iterations=None)
-            solve_time_s = time.monotonic() - t0
-            solver_failed = False
-        except RuntimeError:
-            solve_time_s = time.monotonic() - t0
-            solver_failed = True
-            converged = None
-            iters = None
-            cost = None
-            poses = torch.from_numpy(graph.node_init).float()
+        # Ensure edge_attr has room for residuals (3 extra columns)
+        if data.edge_attr.size(1) == 6:
+            zeros = torch.zeros(data.edge_attr.size(0), 3,
+                                dtype=data.edge_attr.dtype,
+                                device=data.edge_attr.device)
+            data.edge_attr = torch.cat([data.edge_attr, zeros], dim=1)
+
+        total_solve_time = 0.0
+        last_poses = None
+
+        for it in range(residual_iterations):
+            if it > 0 and last_poses is not None:
+                residuals = _compute_edge_residuals(
+                    last_poses, data.edge_index, graph.edge_measurement
+                )
+                data.edge_attr[:, 6:] = residuals
+                conf = model(data)
+
+            t0 = time.monotonic()
+            try:
+                poses, converged, iters, cost = solver.solve(
+                    graph, conf, max_iterations=None
+                )
+                total_solve_time += time.monotonic() - t0
+                solver_failed = False
+                last_poses = poses
+            except RuntimeError:
+                total_solve_time += time.monotonic() - t0
+                solver_failed = True
+                converged = None
+                iters = None
+                cost = None
+                last_poses = torch.from_numpy(graph.node_init).float()
+                break
+
+        poses = last_poses
 
         ate = None
         if not solver_failed and graph.gt_node_poses is not None:
@@ -70,8 +136,9 @@ def evaluate_one_graph(
         "final_cost": float(cost) if cost is not None else None,
         "num_iterations": iters,
         "converged": converged,
-        "solve_time_s": solve_time_s,
+        "solve_time_s": total_solve_time,
         "solver_failed": solver_failed,
+        "residual_iterations": residual_iterations,
     }
 
 

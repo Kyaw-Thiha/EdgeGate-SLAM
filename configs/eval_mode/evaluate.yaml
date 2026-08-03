@@ -17,6 +17,9 @@ model_dir: null
 
 # Test seed — separate from data.seed and train.seed.
 test_seed: 999
+# Residual-guided iterative re-weighting: number of solve→residual→re-predict
+# iterations. 1 = single-pass (no iteration, backward compatible).
+residual_iterations: 1
 
 # Number of synthetic test graphs (used when dataset=synthetic).
 num_test_graphs: 20

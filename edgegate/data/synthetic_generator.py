@@ -59,6 +59,7 @@ def generate(
     min_gap: int = 5,
     info_scale: float = 1.0,
     lc_ratio: int | None = None,
+    include_residuals: bool = False,
 ) -> PoseGraph:
     """Generate a synthetic SE(2) pose graph with ground-truth inlier labels.
 
@@ -155,6 +156,17 @@ def generate(
     edge_type[E_odom:] = 1
     edge_label[E_odom:] = lc_labels
 
+    # ── 6. GT residuals (optional — for residual-guided re-weighting) ──────────
+    edge_residual = None
+    if include_residuals:
+        edge_residual = np.zeros((E, 3))
+        for e in range(E):
+            src, dst = edge_index[0, e], edge_index[1, e]
+            true_rel = inverse_compose(gt_poses[src], gt_poses[dst])
+            residual = edge_measurement[e] - true_rel
+            residual[2] = angle_wrap(residual[2])
+            edge_residual[e] = residual
+
     return PoseGraph(
         node_init=node_init,
         edge_index=edge_index,
@@ -162,5 +174,6 @@ def generate(
         edge_info=edge_info,
         edge_type=edge_type,
         edge_label=edge_label,
-        gt_node_poses=gt_poses,  # noise-free trajectory; same frame as node_init
+        gt_node_poses=gt_poses,
+        edge_residual=edge_residual,
     )

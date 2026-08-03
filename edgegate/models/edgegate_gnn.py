@@ -75,8 +75,11 @@ class EdgeGateGNN(nn.Module):
         num_layers: int = 3,
         hidden_dim: int = 64,
         dropout: float = 0.1,
+        edge_attr_dim: int = 6,
     ) -> None:
         super().__init__()
+
+        self.edge_attr_dim = edge_attr_dim
 
         # ── Input projections ─────────────────────────────────────────────────
         # Project initial pose guesses into the hidden embedding space.
@@ -85,11 +88,14 @@ class EdgeGateGNN(nn.Module):
         # Separate projection for edge_attr used in the confidence head.
         # Kept distinct from the message-function path so the head can learn a
         # different representation of the same edge features.
-        self.edge_proj = nn.Linear(_EDGE_ATTR_DIM, hidden_dim)
+        self.edge_proj = nn.Linear(edge_attr_dim, hidden_dim)
 
         # ── Message-passing stack ─────────────────────────────────────────────
         self.convs = nn.ModuleList(
-            [EdgeTypeAwareConv(hidden_dim, hidden_dim) for _ in range(num_layers)]
+            [
+                EdgeTypeAwareConv(hidden_dim, hidden_dim, edge_attr_dim=edge_attr_dim)
+                for _ in range(num_layers)
+            ]
         )
 
         # One norm per residual block (layers 1..L-1); none for layer 0.

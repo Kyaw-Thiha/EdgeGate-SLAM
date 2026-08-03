@@ -274,7 +274,10 @@ def _run_evaluate(cfg: DictConfig) -> None:
     results = []
     for i, graph in enumerate(graphs):
         if method_type == "learned":
-            r = evaluate_one_graph(model, solver, graph)
+            r = evaluate_one_graph(
+                model, solver, graph,
+                residual_iterations=cfg.eval_mode.get("residual_iterations", 1),
+            )
         else:
             w = torch.ones(graph.edge_index.shape[1])
             r = evaluate_one_graph_classical(solver, graph, w)

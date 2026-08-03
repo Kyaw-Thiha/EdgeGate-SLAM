@@ -14,7 +14,7 @@ def to_pyg(graph: PoseGraph) -> Data:
     Attributes on the returned Data:
         x          (N, 3)  node features: initial pose guess [x, y, θ]
         edge_index (2, E)
-        edge_attr  (E, 6)  [dx, dy, dθ, Ixx, Iyy, Iθθ]
+        edge_attr  (E, D)  [dx, dy, dθ, Ixx, Iyy, Iθθ] (± [rx, ry, rθ] if edge_residual)
         edge_type  (E,)    0=odometry, 1=loop-closure  (separate from edge_attr
                            so EdgeTypeAwareConv can use type-specific projections
                            without slicing it back out)
@@ -25,7 +25,10 @@ def to_pyg(graph: PoseGraph) -> Data:
 
     meas = torch.from_numpy(graph.edge_measurement).float()            # (E, 3)
     info_diag = torch.from_numpy(graph.edge_info[:, _INFO_DIAG]).float()  # (E, 3)
-    edge_attr = torch.cat([meas, info_diag], dim=1)                    # (E, 6)
+    components = [meas, info_diag]
+    if graph.edge_residual is not None:
+        components.append(torch.from_numpy(graph.edge_residual).float())
+    edge_attr = torch.cat(components, dim=1)                           # (E, 6) or (E, 9)
 
     edge_type = torch.from_numpy(graph.edge_type).long()
 

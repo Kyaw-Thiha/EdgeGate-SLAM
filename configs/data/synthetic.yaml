@@ -6,4 +6,5 @@ lc_ratio: null              # target poses-per-LC ratio; overrides num_loop_clos
 segment_length: 5           # mean steps per Manhattan-world segment (smaller = more revisits)
 proximity_threshold: 3.0    # max Euclidean distance for inlier LC candidates
 info_scale: 1.0             # scalar multiplier on LC info matrix (odometry fixed)
+include_residuals: false     # include GT-pose residuals as edge features (for residual-guided re-weighting)
 seed: 42

@@ -57,6 +57,7 @@ def _generate_data(cfg: DictConfig) -> tuple[list, list]:
         "segment_length": cfg.data.get("segment_length", 5),
         "proximity_threshold": cfg.data.get("proximity_threshold", 2.0),
         "info_scale": cfg.data.get("info_scale", 1.0),
+        "include_residuals": cfg.data.get("include_residuals", False),
     }
     lc_ratio = cfg.data.get("lc_ratio")
     if lc_ratio is not None:
