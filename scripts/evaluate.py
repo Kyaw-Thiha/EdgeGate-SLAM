@@ -56,7 +56,11 @@ def _load_synthetic(cfg: DictConfig) -> list:
         "outlier_structure": data_cfg.get("outlier_structure", "random"),
         "segment_length": data_cfg.get("segment_length", 5),
         "proximity_threshold": data_cfg.get("proximity_threshold", 2.0),
+        "info_scale": data_cfg.get("info_scale", 1.0),
     }
+    lc_ratio = data_cfg.get("lc_ratio")
+    if lc_ratio is not None:
+        kwargs["lc_ratio"] = lc_ratio
     n = cfg.eval_mode.get("num_test_graphs", 20)
     seed = cfg.eval_mode.get("test_seed", 999)
     return [generate(**kwargs, seed=seed + i) for i in range(n)]
