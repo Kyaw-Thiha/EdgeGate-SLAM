@@ -166,17 +166,18 @@ def evaluate_one_graph_classical(
         lc_labels = np.array([], dtype=np.float32)
 
     t0 = time.monotonic()
-    try:
-        poses, converged, iters, cost = solver.solve(graph, edge_weights, max_iterations=None)
-        solve_time_s = time.monotonic() - t0
-        solver_failed = False
-    except RuntimeError:
-        solve_time_s = time.monotonic() - t0
-        solver_failed = True
-        converged = None
-        iters = None
-        cost = None
-        poses = torch.from_numpy(graph.node_init).float()
+    with torch.no_grad():
+        try:
+            poses, converged, iters, cost = solver.solve(graph, edge_weights, max_iterations=None)
+            solve_time_s = time.monotonic() - t0
+            solver_failed = False
+        except RuntimeError:
+            solve_time_s = time.monotonic() - t0
+            solver_failed = True
+            converged = None
+            iters = None
+            cost = None
+            poses = torch.from_numpy(graph.node_init).float()
 
     ate = None
     if not solver_failed and graph.gt_node_poses is not None:

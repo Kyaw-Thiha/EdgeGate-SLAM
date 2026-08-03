@@ -100,7 +100,6 @@ class PyPoseSolver(Solver):
         num_iterations = int(scheduler.steps)
         final_cost = float(optimizer.loss) if optimizer.loss is not None else float("inf")
 
-        with torch.no_grad():
-            poses = torch.cat([model.pose0, model.poses], dim=0).clone()
+        poses = torch.cat([model.pose0, model.poses], dim=0).clone()
 
         return poses, converged, num_iterations, final_cost
