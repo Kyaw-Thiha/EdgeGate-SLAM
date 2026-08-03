@@ -8,4 +8,5 @@ loss_mode: bce               # bce | trajectory | combined
 trajectory_loss_weight: 1.0  # only used in combined mode
 checkpoint_every: 5          # full checkpoint (poses + edge_weights) every N epochs
 val_split: 0.2               # fraction of synthetic graphs held out for validation
+resume_from: null             # path to training_state.pt for resuming interrupted training
 seed: 0

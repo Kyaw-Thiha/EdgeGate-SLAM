@@ -189,6 +189,60 @@ def _save_checkpoint(model, solver, viz_graph, epoch) -> None:
     model.train()  # restore training mode — eval() must not persist past this function
 
 
+def _save_training_state(
+    model, optimizer, epoch, best_f1, metrics_log, cfg, path: str
+) -> None:
+    state = {
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "epoch": epoch,
+        "best_f1": best_f1,
+        "rng_states": {
+            "torch": torch.random.get_rng_state(),
+            "numpy": np.random.get_state(),
+        },
+        "metrics_log": metrics_log,
+        "cfg": OmegaConf.to_container(cfg, resolve=True),
+    }
+    torch.save(state, path)
+
+
+def _load_training_state(
+    path: str, model, optimizer, device: torch.device
+) -> tuple[int, float, list[dict], dict]:
+    state = torch.load(path, map_location=device, weights_only=False)
+    model.load_state_dict(state["model_state"])
+    optimizer.load_state_dict(state["optimizer_state"])
+    # Restore RNG so resumed training is deterministic
+    if "rng_states" in state:
+        torch.random.set_rng_state(state["rng_states"]["torch"])
+        np.random.set_state(state["rng_states"]["numpy"])
+    return (
+        state["epoch"],
+        state["best_f1"],
+        state.get("metrics_log", []),
+        state.get("cfg", {}),
+    )
+
+
+def _warn_on_config_drift(current_cfg, saved_cfg: dict) -> None:
+    """Warn if critical training settings changed between runs."""
+    import warnings
+
+    if not saved_cfg:
+        return
+    sensitive = ["lr", "loss_mode", "solver_train_iterations",
+                 "outlier_rate", "outlier_structure"]
+    for key in sensitive:
+        saved_val = saved_cfg.get("train", {}).get(key) or saved_cfg.get("data", {}).get(key)
+        current_val = current_cfg.train.get(key, None) or current_cfg.data.get(key, None)
+        if current_val is not None and saved_val is not None and current_val != saved_val:
+            warnings.warn(
+                f"Config drift: {key}={current_val} (current) vs {saved_val} (saved). "
+                f"Resumed training may produce inconsistent results."
+            )
+
+
 def train(cfg: DictConfig) -> None:
     _set_seed(cfg.train.seed)
 
@@ -216,10 +270,21 @@ def train(cfg: DictConfig) -> None:
     viz_graph = val_graphs[0]
     _save_graph_info(viz_graph)
 
+    start_epoch = 1
     best_f1 = -1.0
     metrics_log: list[dict] = []
 
-    for epoch in range(1, cfg.train.epochs + 1):
+    resume_path = cfg.train.get("resume_from")
+    if resume_path is not None:
+        start_epoch, best_f1, metrics_log, saved_cfg = _load_training_state(
+            resume_path, model, optimizer, device
+        )
+        start_epoch += 1  # resume from next epoch
+        _warn_on_config_drift(cfg, saved_cfg)
+        print(f"Resumed from epoch {start_epoch - 1}. "
+              f"best_f1={best_f1:.4f}, {len(metrics_log)} epochs logged.")
+
+    for epoch in range(start_epoch, cfg.train.epochs + 1):
         train_loss = _train_epoch(model, losses, optimizer, train_graphs, cfg)
         val_metrics = _validate(model, solver, val_graphs, cfg)
 
@@ -229,6 +294,10 @@ def train(cfg: DictConfig) -> None:
 
         if epoch % cfg.train.checkpoint_every == 0:
             _save_checkpoint(model, solver, viz_graph, epoch)
+            _save_training_state(
+                model, optimizer, epoch, best_f1, metrics_log,
+                cfg, "training_state.pt",
+            )
 
         f1 = val_metrics.get("val_f1", -1.0)
         if f1 > best_f1:
@@ -236,6 +305,10 @@ def train(cfg: DictConfig) -> None:
             torch.save(model.state_dict(), "model_best.pt")
 
     torch.save(model.state_dict(), "model_last.pt")
+    _save_training_state(
+        model, optimizer, cfg.train.epochs, best_f1, metrics_log,
+        cfg, "training_state.pt",
+    )
     with open("metrics.json", "w") as f:
         json.dump(metrics_log, f, indent=2)
     wandb.finish()
