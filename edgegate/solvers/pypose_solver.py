@@ -22,13 +22,14 @@ class _PGOModel(nn.Module):
 
     def __init__(self, graph: PoseGraph, info_sqrt: torch.Tensor) -> None:
         super().__init__()
-        poses = torch.from_numpy(graph.node_init).float()
-        self.register_buffer("pose0", poses[0:1].clone())           # (1, 3) fixed anchor
-        self.poses = nn.Parameter(poses[1:].clone())                 # (N-1, 3) optimised
-        self.register_buffer("src", torch.from_numpy(graph.edge_index[0]).long())
-        self.register_buffer("dst", torch.from_numpy(graph.edge_index[1]).long())
-        self.register_buffer("meas", torch.from_numpy(graph.edge_measurement).float())
-        self.register_buffer("info_sqrt", info_sqrt)                 # (E, 3)
+        device = info_sqrt.device
+        poses = torch.from_numpy(graph.node_init).float().to(device)
+        self.register_buffer("pose0", poses[0:1].clone())
+        self.poses = nn.Parameter(poses[1:].clone())
+        self.register_buffer("src", torch.from_numpy(graph.edge_index[0]).long().to(device))
+        self.register_buffer("dst", torch.from_numpy(graph.edge_index[1]).long().to(device))
+        self.register_buffer("meas", torch.from_numpy(graph.edge_measurement).float().to(device))
+        self.register_buffer("info_sqrt", info_sqrt)
 
     def forward(self, _=None) -> torch.Tensor:
         poses = torch.cat([self.pose0, self.poses], dim=0)           # (N, 3)
@@ -59,10 +60,12 @@ class PyPoseSolver(Solver):
 
     def __init__(
         self,
+        device: str = "cpu",
         damping: float = 1e-4,
         patience: int = 5,
         decreasing: float = 1e-3,
     ) -> None:
+        self.device = torch.device(device)
         self.damping = damping
         self.patience = patience
         self.decreasing = decreasing
@@ -75,9 +78,9 @@ class PyPoseSolver(Solver):
     ) -> tuple[torch.Tensor, bool, int, float]:
         max_iter = max_iterations if max_iterations is not None else 100
 
-        edge_info = torch.from_numpy(graph.edge_info).float()
-        info_scaled = scale_information(edge_info, edge_weights)             # (E, 6)
-        info_sqrt = info_scaled[:, [0, 3, 5]].clamp(min=0).sqrt()           # (E, 3)
+        edge_info = torch.from_numpy(graph.edge_info).float().to(self.device)
+        info_scaled = scale_information(edge_info, edge_weights.to(self.device))
+        info_sqrt = info_scaled[:, [0, 3, 5]].clamp(min=0).sqrt()
 
         model = _PGOModel(graph, info_sqrt)
         strategy = ppopt.strategy.Constant(damping=self.damping)

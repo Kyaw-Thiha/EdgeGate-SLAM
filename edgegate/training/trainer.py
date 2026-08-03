@@ -93,7 +93,7 @@ def _build_losses(cfg: DictConfig, solver: Solver) -> dict:
 
 def _train_epoch_bce(model, bce_loss, optimizer, train_graphs, cfg):
     model.train()
-    pyg_graphs = [to_pyg(g) for g in train_graphs]
+    pyg_graphs = [to_pyg(g).to(next(model.parameters()).device) for g in train_graphs]
     loader = PyGDataLoader(pyg_graphs, batch_size=cfg.train.batch_size, shuffle=True)
 
     total_loss = 0.0
@@ -116,14 +116,14 @@ def _train_epoch_per_graph(model, losses, optimizer, train_graphs, cfg):
 
     for graph in train_graphs:
         optimizer.zero_grad()
-        data = to_pyg(graph)
+        data = to_pyg(graph).to(next(model.parameters()).device)
         conf = model(data)
 
         components = []
         if "bce" in losses:
             components.append(losses["bce"](conf, data.edge_label, data.edge_type))
         if "trajectory" in losses:
-            gt = torch.from_numpy(graph.gt_node_poses).float()
+            gt = torch.from_numpy(graph.gt_node_poses).float().to(data.x.device)
             components.append(weight * losses["trajectory"](graph, conf, gt))
 
         loss = sum(components)
@@ -194,6 +194,8 @@ def train(cfg: DictConfig) -> None:
     train_graphs, val_graphs = _generate_data(cfg)
 
     model = instantiate(cfg.model)
+    device = torch.device(cfg.train.get("device", "cpu"))
+    model.to(device)
     solver = instantiate(cfg.solver)
 
     # Auto-select PyPoseSolver when training with trajectory loss.
@@ -202,7 +204,7 @@ def train(cfg: DictConfig) -> None:
     # graph. GTSAMSolver would silently produce zero gradients.
     if cfg.train.loss_mode in ("trajectory", "combined"):
         from edgegate.solvers.pypose_solver import PyPoseSolver
-        solver = PyPoseSolver()
+        solver = PyPoseSolver(device=str(device))
 
     losses = _build_losses(cfg, solver)
 
