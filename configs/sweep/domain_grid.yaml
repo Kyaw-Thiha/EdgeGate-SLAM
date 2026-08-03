@@ -1,0 +1,16 @@
+# @package _global_
+# Phase A domain sweep: graph-size x LC-ratio x info-scale
+# at representative outlier configs (BCE-only, no solver in training loop).
+#
+# Usage:
+#   pixi run train --multirun \
+#       data.outlier_rate=50,90 data.outlier_structure=clustered,random \
+#       data.num_poses=100,500,1000,3500 \
+#       data.lc_ratio=1,5,15,40 \
+#       data.info_scale=0.1,1.0,10.0,100.0
+#
+# 2 outlier_rates x 2 outlier_structures x 4 sizes x 4 ratios x 4 scales
+# = 256 runs (~7h wall time; ~1.8h with joblib parallel=4)
+
+defaults:
+  - override hydra/launcher: joblib
