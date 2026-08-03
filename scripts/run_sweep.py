@@ -54,6 +54,14 @@ BASELINES = [
     ("dcs", "eval_method.method=dcs"),
 ]
 
+# Injection sweep over outlier rate and LC ratio on real benchmarks.
+# Rate sweep at 15:1 ratio, plus ratio sweep at 30% outlier rate.
+# CSAIL excluded from ratio sweep (convergence issue is orthogonal — sweep-003 §13B).
+INJECTION_SWEEP = [
+    (10, 15, ""), (30, 15, ""), (50, 15, ""), (70, 15, ""),
+    (30, 5, ""),  (30, 15, ""), (30, 40, ""),
+]
+
 
 def _sep(title: str) -> None:
     print(f"\n{'='*60}\n  {title}\n{'='*60}", flush=True)
@@ -123,15 +131,32 @@ def eval_learned(sweep_dir: Path, models: list[tuple[str, Path]], eval_overrides
     extra = eval_overrides.split() if eval_overrides else []
     for label, model_dir in models:
         for ds in ALL_DATASETS:
-            out_path = eval_dir / label / ds
-            out_path.mkdir(parents=True, exist_ok=True)
-            cmd = [
-                "pixi", "run", "evaluate",
-                f"eval_mode.dataset={ds}",
-                f"eval_mode.model_dir={model_dir.resolve()}",
-                f"hydra.run.dir={out_path}",
-            ] + extra
-            _run(cmd)
+            if ds in SYNTH_DATASETS:
+                # Synthetic: single eval with default injection params
+                out_path = eval_dir / label / ds
+                out_path.mkdir(parents=True, exist_ok=True)
+                cmd = [
+                    "pixi", "run", "evaluate",
+                    f"eval_mode.dataset={ds}",
+                    f"eval_mode.model_dir={model_dir.resolve()}",
+                    f"hydra.run.dir={out_path}",
+                ] + extra
+                _run(cmd)
+            else:
+                # Real benchmarks: sweep injection params
+                for inj_rate, inj_ratio, _ in INJECTION_SWEEP:
+                    inj_label = f"inj{inj_rate}pct_r{inj_ratio}"
+                    out_path = eval_dir / label / ds / inj_label
+                    out_path.mkdir(parents=True, exist_ok=True)
+                    cmd = [
+                        "pixi", "run", "evaluate",
+                        f"eval_mode.dataset={ds}",
+                        f"eval_mode.model_dir={model_dir.resolve()}",
+                        f"eval_mode.injection_outlier_rate={inj_rate}",
+                        f"eval_mode.injection_lc_ratio={inj_ratio}",
+                        f"hydra.run.dir={out_path}",
+                    ] + extra
+                    _run(cmd)
         print()
 
 
@@ -142,14 +167,28 @@ def eval_baselines(sweep_dir: Path) -> None:
 
     for method_name, extra_args in BASELINES:
         for ds in ALL_DATASETS:
-            out_path = bl_dir / method_name / ds
-            out_path.mkdir(parents=True, exist_ok=True)
-            cmd = [
-                "pixi", "run", "evaluate",
-                f"eval_mode.dataset={ds}",
-                f"hydra.run.dir={out_path}",
-            ] + extra_args.split()
-            _run(cmd)
+            if ds in SYNTH_DATASETS:
+                out_path = bl_dir / method_name / ds
+                out_path.mkdir(parents=True, exist_ok=True)
+                cmd = [
+                    "pixi", "run", "evaluate",
+                    f"eval_mode.dataset={ds}",
+                    f"hydra.run.dir={out_path}",
+                ] + extra_args.split()
+                _run(cmd)
+            else:
+                for inj_rate, inj_ratio, _ in INJECTION_SWEEP:
+                    inj_label = f"inj{inj_rate}pct_r{inj_ratio}"
+                    out_path = bl_dir / method_name / ds / inj_label
+                    out_path.mkdir(parents=True, exist_ok=True)
+                    cmd = [
+                        "pixi", "run", "evaluate",
+                        f"eval_mode.dataset={ds}",
+                        f"eval_mode.injection_outlier_rate={inj_rate}",
+                        f"eval_mode.injection_lc_ratio={inj_ratio}",
+                        f"hydra.run.dir={out_path}",
+                    ] + extra_args.split()
+                    _run(cmd)
         print()
 
 

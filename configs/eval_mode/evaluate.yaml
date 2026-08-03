@@ -29,7 +29,8 @@ num_test_graphs: 20
 # known labels for edge-F1 evaluation. The existing graph edges are preserved
 # unlabeled (label=-1).
 inject_outliers: true           # whether to inject labelled LCs on top of real data
-injection_num_lcs: 20           # number of LCs to inject
+injection_num_lcs: 20           # number of LCs to inject (overridden by injection_lc_ratio)
+injection_lc_ratio: null        # int — if set, computes num_lcs = num_poses // ratio from benchmark
 injection_outlier_rate: 30      # % of injected LCs that are outliers
 injection_outlier_structure: random  # "random" | "clustered"
 

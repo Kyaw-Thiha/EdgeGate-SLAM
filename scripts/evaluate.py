@@ -102,10 +102,18 @@ def _load_benchmark(cfg: DictConfig) -> list:
     if cfg.eval_mode.get("inject_outliers", False):
         rng = np.random.default_rng(cfg.eval_mode.get("test_seed", 999))
 
+        # Resolve LC count: injection_lc_ratio overrides injection_num_lcs
+        num_lcs = cfg.eval_mode.get("injection_num_lcs", None)
+        lc_ratio = cfg.eval_mode.get("injection_lc_ratio", None)
+        if num_lcs is None and lc_ratio is not None:
+            num_lcs = max(1, graph.node_init.shape[0] // lc_ratio)
+        elif num_lcs is None:
+            num_lcs = 20
+
         try:
             lc_edges, lc_meas, lc_labels = inject_labeled_loop_closures(
                 reference_poses=ref_poses,
-                num_loop_closures=cfg.eval_mode.get("injection_num_lcs", 20),
+                num_loop_closures=num_lcs,
                 outlier_rate=cfg.eval_mode.get("injection_outlier_rate", 30),
                 outlier_structure=cfg.eval_mode.get("injection_outlier_structure", "random"),
                 rng=rng,
