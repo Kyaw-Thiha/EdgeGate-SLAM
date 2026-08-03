@@ -44,3 +44,61 @@ def test_info_scale_large_value():
     np.testing.assert_array_almost_equal(
         g.edge_info[lc_mask][0], LC_INFO * 100.0
     )
+
+
+def test_lc_ratio_default_preserves_num_loop_closures():
+    """Default lc_ratio=None uses num_loop_closures directly."""
+    g = generate(
+        num_poses=100, num_loop_closures=20,
+        outlier_rate=30, outlier_structure="random", seed=42,
+    )
+    lc_mask = g.edge_type == 1
+    assert lc_mask.sum() == 20
+
+
+def test_lc_ratio_overrides_num_loop_closures():
+    """lc_ratio=N produces num_poses // N loop closures,
+    ignoring the explicit num_loop_closures value."""
+    g = generate(
+        num_poses=100, num_loop_closures=999,
+        outlier_rate=30, outlier_structure="random", seed=42,
+        lc_ratio=5,
+    )
+    lc_mask = g.edge_type == 1
+    assert lc_mask.sum() == 100 // 5
+
+
+def test_lc_ratio_dense():
+    """lc_ratio=2 -> ~1 LC per 2 poses."""
+    g = generate(
+        num_poses=100, num_loop_closures=10,
+        outlier_rate=30, outlier_structure="random", seed=42,
+        lc_ratio=2,
+    )
+    lc_mask = g.edge_type == 1
+    assert lc_mask.sum() == 100 // 2
+
+
+def test_lc_ratio_40_to_1():
+    """lc_ratio=40 -> sparse LCs."""
+    g = generate(
+        num_poses=100, num_loop_closures=10,
+        outlier_rate=30, outlier_structure="random", seed=42,
+        lc_ratio=40,
+    )
+    lc_mask = g.edge_type == 1
+    assert lc_mask.sum() == max(1, 100 // 40)
+
+
+def test_lc_ratio_and_info_scale_compose():
+    """lc_ratio and info_scale work together."""
+    g = generate(
+        num_poses=100, num_loop_closures=10,
+        outlier_rate=30, outlier_structure="random", seed=42,
+        lc_ratio=5, info_scale=0.5,
+    )
+    lc_mask = g.edge_type == 1
+    assert lc_mask.sum() == 100 // 5
+    np.testing.assert_array_almost_equal(
+        g.edge_info[lc_mask][0], LC_INFO * 0.5
+    )
