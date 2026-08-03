@@ -247,3 +247,144 @@ def accumulate_metrics(results: list[dict]) -> dict:
         "converged_count": converged_count,
         "failed_count": failed_count,
     }
+
+
+def _build_pruned_posegraph(graph: PoseGraph, keep_mask: np.ndarray) -> PoseGraph:
+    """Return a new PoseGraph containing only edges where keep_mask is True."""
+    return PoseGraph(
+        node_init=graph.node_init,
+        edge_index=graph.edge_index[:, keep_mask],
+        edge_measurement=graph.edge_measurement[keep_mask],
+        edge_info=graph.edge_info[keep_mask],
+        edge_type=graph.edge_type[keep_mask],
+        edge_label=(
+            graph.edge_label[keep_mask]
+            if graph.edge_label is not None
+            else None
+        ),
+        gt_node_poses=graph.gt_node_poses,
+    )
+
+
+def evaluate_one_graph_hybrid(
+    model: torch.nn.Module,
+    solver_dcs: Solver,
+    graph: PoseGraph,
+    threshold: float = 0.5,
+    hybrid_mode: str = "prune",
+) -> dict:
+    """GNN → DCS hybrid evaluation.
+
+    Mode 'prune':   GNN confidence → remove edges < threshold → DCS on pruned graph.
+    Mode 'two_pass': Same, then warm-start DCS on full graph from clean result.
+
+    Returns per-graph metrics plus hybrid-specific logging.
+    """
+    from edgegate.solvers.gtsam_solver import GTSAMSolver
+
+    model.eval()
+    with torch.no_grad():
+        data = to_pyg(graph)
+        conf = model(data)
+
+    # Classification metrics from GNN
+    lc_mask = graph.edge_type == 1
+    if graph.edge_label is not None:
+        valid_mask = lc_mask & (graph.edge_label >= 0.0)
+        if valid_mask.any():
+            labels_t = torch.from_numpy(graph.edge_label)
+            pred = (conf[valid_mask] >= 0.5).float()
+            gt = (labels_t[valid_mask] >= 0.5).float()
+            tp = int((pred * gt).sum().item())
+            fp = int((pred * (1 - gt)).sum().item())
+            fn = int(((1 - pred) * gt).sum().item())
+        else:
+            tp = fp = fn = 0
+    else:
+        tp = fp = fn = 0
+
+    # Remove low-confidence loop-closure edges
+    conf_np = conf.cpu().numpy()
+    remove_mask = lc_mask & (conf_np < threshold)
+    keep_mask = ~remove_mask
+
+    n_lc_total = int(lc_mask.sum())
+    n_removed = int(remove_mask.sum())
+    if n_removed > 0:
+        removed_conf = conf_np[remove_mask]
+        removed_mean = float(removed_conf.mean())
+        removed_min = float(removed_conf.min())
+        removed_max = float(removed_conf.max())
+    else:
+        removed_mean = removed_min = removed_max = 0.0
+
+    pruned_graph = _build_pruned_posegraph(graph, keep_mask)
+
+    pass1_ate = pass1_cost = pass1_iters = None
+    pass1_converged = False
+
+    if hybrid_mode == "two_pass":
+        solver_clean = GTSAMSolver(kernel="none")
+        w1 = torch.ones(pruned_graph.edge_index.shape[1], dtype=torch.float64)
+        t0 = time.monotonic()
+        pass1_poses, pass1_converged, pass1_iters, pass1_cost = (
+            solver_clean.solve(pruned_graph, w1)
+        )
+        t1 = time.monotonic()
+
+        if graph.gt_node_poses is not None:
+            gt = torch.from_numpy(graph.gt_node_poses).float()
+            pass1_ate = ate_rmse(pass1_poses, gt)
+        else:
+            pass1_ate = None
+
+        warm_graph = PoseGraph(
+            node_init=pass1_poses.cpu().numpy(),
+            edge_index=graph.edge_index,
+            edge_measurement=graph.edge_measurement,
+            edge_info=graph.edge_info,
+            edge_type=graph.edge_type,
+            edge_label=graph.edge_label,
+            gt_node_poses=graph.gt_node_poses,
+        )
+        w2 = torch.ones(graph.edge_index.shape[1], dtype=torch.float64)
+        t0_2 = time.monotonic()
+        poses, converged, iters, cost = solver_dcs.solve(warm_graph, w2)
+        solve_time = (t1 - t0) + (time.monotonic() - t0_2)
+    else:
+        w = torch.ones(pruned_graph.edge_index.shape[1], dtype=torch.float64)
+        t0 = time.monotonic()
+        poses, converged, iters, cost = solver_dcs.solve(pruned_graph, w)
+        solve_time = time.monotonic() - t0
+
+    ate = None
+    if graph.gt_node_poses is not None:
+        gt = torch.from_numpy(graph.gt_node_poses).float()
+        ate = ate_rmse(poses, gt)
+
+    result = {
+        "tp": tp, "fp": fp, "fn": fn,
+        "ate": ate,
+        "poses": poses.cpu().numpy(),
+        "confidence": conf.cpu().numpy(),
+        "final_cost": float(cost) if cost is not None else None,
+        "num_iterations": iters,
+        "converged": converged,
+        "solve_time_s": solve_time,
+        "solver_failed": False,
+        "hybrid_mode": hybrid_mode,
+        "hybrid_threshold": threshold,
+        "hybrid_edges_total_lc": n_lc_total,
+        "hybrid_edges_removed": n_removed,
+        "hybrid_removed_conf_mean": removed_mean,
+        "hybrid_removed_conf_min": removed_min,
+        "hybrid_removed_conf_max": removed_max,
+    }
+    if hybrid_mode == "two_pass":
+        result.update({
+            "hybrid_pass1_ate": pass1_ate,
+            "hybrid_pass1_cost": pass1_cost,
+            "hybrid_pass1_iters": pass1_iters,
+            "hybrid_pass1_converged": pass1_converged,
+        })
+    return result

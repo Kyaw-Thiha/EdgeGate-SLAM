@@ -1,0 +1,9 @@
+# @package _global_
+# GNN -> DCS hybrid: GNN removes low-confidence edges, DCS solves the rest.
+#
+# hybrid_mode: prune     -> hard threshold removal -> DCS on pruned graph
+# hybrid_mode: two_pass  -> clean solve on pruned graph -> DCS warm-started from result
+method: hybrid_gnn_dcs
+threshold: 0.5              # confidence below which loop-closure edges are removed
+dcs_param: 1.0              # DCS kernel width
+hybrid_mode: prune           # prune | two_pass

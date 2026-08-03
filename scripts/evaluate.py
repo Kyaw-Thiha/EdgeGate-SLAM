@@ -187,33 +187,39 @@ def _load_data(cfg: DictConfig) -> list:
     return _load_benchmark(cfg)
 
 
+def _load_model(cfg: DictConfig) -> torch.nn.Module:
+    """Load a GNN model from checkpoint. Shared between learned and hybrid methods."""
+    from hydra.utils import get_original_cwd
+
+    model_dir = cfg.eval_mode.get("model_dir")
+    ckpt_path = cfg.eval_mode.get("checkpoint_path")
+    if model_dir is not None:
+        p = Path(model_dir)
+        if not p.is_absolute():
+            p = Path(get_original_cwd()) / p
+        ckpt_path = str(p / "model_best.pt")
+    elif ckpt_path is None:
+        ckpt_path = str(Path(get_original_cwd()) / "model_best.pt")
+    if not Path(ckpt_path).exists():
+        raise FileNotFoundError(
+            f"Checkpoint not found: {ckpt_path}. "
+            "Set eval_mode.checkpoint_path, eval_mode.model_dir, "
+            "or place model_best.pt in cwd."
+        )
+    model = instantiate(cfg.model)
+    model.load_state_dict(
+        torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    )
+    model.eval()
+    return model
+
+
 def _setup_method(cfg: DictConfig) -> dict:
     method_name = cfg.eval_method.get("method", "learned")
     method: dict = {"type": method_name, "model": None}
 
     if method_name == "learned":
-        from hydra.utils import get_original_cwd
-
-        model_dir = cfg.eval_mode.get("model_dir")
-        ckpt_path = cfg.eval_mode.get("checkpoint_path")
-        if model_dir is not None:
-            p = Path(model_dir)
-            if not p.is_absolute():
-                p = Path(get_original_cwd()) / p
-            ckpt_path = str(p / "model_best.pt")
-        elif ckpt_path is None:
-            ckpt_path = str(Path(get_original_cwd()) / "model_best.pt")
-        if not Path(ckpt_path).exists():
-            raise FileNotFoundError(
-                f"Checkpoint not found: {ckpt_path}. "
-                "Set eval_mode.checkpoint_path, eval_mode.model_dir, "
-                "or place model_best.pt in cwd."
-            )
-        model = instantiate(cfg.model)
-        model.load_state_dict(
-            torch.load(ckpt_path, map_location="cpu", weights_only=True)
-        )
-        model.eval()
+        model = _load_model(cfg)
         method["model"] = model
         solver = instantiate(cfg.solver)
     elif method_name == "gnc":
@@ -222,6 +228,16 @@ def _setup_method(cfg: DictConfig) -> dict:
     elif method_name == "dcs":
         from edgegate.solvers.gtsam_solver import GTSAMSolver
         solver = GTSAMSolver(kernel="dcs")
+    elif method_name == "hybrid_gnn_dcs":
+        from edgegate.solvers.gtsam_solver import GTSAMSolver
+        model = _load_model(cfg)
+        method["model"] = model
+        method["threshold"] = cfg.eval_method.get("threshold", 0.5)
+        method["hybrid_mode"] = cfg.eval_method.get("hybrid_mode", "prune")
+        solver = GTSAMSolver(
+            kernel="dcs",
+            dcs_param=cfg.eval_method.get("dcs_param", 1.0),
+        )
     elif method_name == "uniform":
         solver = instantiate(cfg.solver)
     elif method_name == "switchable":
@@ -285,6 +301,13 @@ def _run_evaluate(cfg: DictConfig) -> None:
             r = evaluate_one_graph(
                 model, solver, graph,
                 residual_iterations=cfg.eval_mode.get("residual_iterations", 1),
+            )
+        elif method_type == "hybrid_gnn_dcs":
+            from edgegate.training.evaluate import evaluate_one_graph_hybrid
+            r = evaluate_one_graph_hybrid(
+                model, solver, graph,
+                threshold=method.get("threshold", 0.5),
+                hybrid_mode=method.get("hybrid_mode", "prune"),
             )
         else:
             w = torch.ones(graph.edge_index.shape[1])
