@@ -64,7 +64,7 @@ Per `docs/EdgeGate_SLAM_Research_Proposal.md` §8, the primary research contribu
 |------|------|---------|
 | Train | BCE on synthetic (default: 50 poses, 30% outliers) | `pixi run train` |
 | Synth eval | GNN vs. uniform/GNC/DCS on synthetic test graphs | `pixi run evaluate eval_mode.dataset=synthetic eval_method.method=<name>` |
-| Outlier sweep | Train across outlier rates 10-90% | `pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered` |
+| Outlier sweep | Train across outlier rates 10-90% | `pixi run train --multirun +sweep=outlier_grid hydra/launcher=joblib hydra.launcher.n_jobs=4 data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered` |
 | Real eval (once) | Report on held-out benchmarks **exactly once per model version** | `pixi run evaluate eval_mode.dataset=<intel,m3500,mit,csail,manhattan,city10000>` |
 | Sweep aggregate | Collect sweep results into comparison CSV | `pixi run evaluate eval_mode.mode=aggregate` |
 
@@ -107,7 +107,7 @@ pixi run download-benchmarks
 # Train
 pixi run train
 pixi run train train.epochs=200 train.lr=5e-4          # custom LR/epochs
-pixi run train loss=trajectory                          # trajectory loss (requires solver)
+pixi run train train.loss_mode=trajectory                     # trajectory loss (requires GPU)
 pixi run train data.outlier_rate=50 data.outlier_structure=clustered
 
 # Evaluate — learned model (default)
@@ -120,10 +120,10 @@ pixi run evaluate eval_mode.dataset=synthetic eval_method.method=gnc
 pixi run evaluate eval_mode.dataset=synthetic eval_method.method=dcs
 
 # Hydra multirun — outlier-rate sweep
-pixi run train --multirun data.outlier_rate=10,30,50,70,90 data.outlier_structure=random,clustered
+pixi run train --multirun +sweep=outlier_grid hydra/launcher=joblib hydra.launcher.n_jobs=8
 
 # Hydra multirun — solver-iterations sweep (trajectory-loss ablation)
-pixi run train --multirun train.solver_train_iterations=1,3,5,10,20
+pixi run train --multirun +sweep=solver_iterations_grid hydra/launcher=joblib hydra.launcher.n_jobs=4
 
 # Visualize — quick live demo (no trained model needed)
 pixi run demo-rerun -- --live
