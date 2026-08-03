@@ -4,6 +4,8 @@
 #
 # Usage:
 #   pixi run train --multirun \
+#       +sweep=domain_grid hydra/launcher=joblib hydra.launcher.n_jobs=8 \
+#       hydra.sweep.dir=runs/sweep_004/train/domain_sweep \
 #       data.outlier_rate=50,90 data.outlier_structure=clustered,random \
 #       data.num_poses=100,500,1000,3500 \
 #       data.lc_ratio=1,5,15,40 \
@@ -11,6 +13,3 @@
 #
 # 2 outlier_rates x 2 outlier_structures x 4 sizes x 4 ratios x 4 scales
 # = 256 runs (~7h wall time; ~1.8h with joblib parallel=4)
-
-defaults:
-  - override hydra/launcher: joblib
