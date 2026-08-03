@@ -126,7 +126,8 @@ class EdgeGateGNN(nn.Module):
         Returns:
             Confidence scores, shape (E,), dtype float32, values in [0, 1].
             A score near 1 means the GNN believes the edge is an inlier;
-            near 0 means likely an outlier.
+            near 0 means likely an outlier. Odometry scores are learned and
+            supervised via trajectory loss.
         """
         x = data.x
         edge_index = data.edge_index
@@ -151,28 +152,15 @@ class EdgeGateGNN(nn.Module):
                 # GNN.md §3 — "never on raw aggregation."
                 h = self.norms[i - 1](h + self.dropout(h_new), batch)
 
-        # ── 3. Per-edge confidence head — loop-closure edges only ────────────────
-        # Odometry edges are always inliers by construction; running the head on
-        # them would silently scale the most reliable edges with an unsupervised,
-        # near-random sigmoid output. Hardcode w_odom = 1.0 end-to-end (train and
-        # eval) — see GNN.md §2.2 and implementation_details.md §edge_bce.
-        E = edge_type.size(0)
-        lc_mask = edge_type == 1                              # (E,) bool
-        lc_idx = lc_mask.nonzero(as_tuple=True)[0]           # LC edge indices
+        # ── 3. Per-edge confidence head — all edges ───────────────────────────────
+        # The confidence head runs on ALL edges. Odometry edges receive learned
+        # weights supervised via trajectory loss (BCE has no labels for odometry).
+        # The onehot(edge_type) input distinguishes odometry from loop-closure edges.
+        h_i = h[edge_index[0]]                                 # (E, hidden_dim)
+        h_j = h[edge_index[1]]                                 # (E, hidden_dim)
+        ea_emb = F.relu(self.edge_proj(edge_attr))              # (E, hidden_dim)
+        type_oh = F.one_hot(edge_type, _NUM_EDGE_TYPES).float()  # (E, 2)
 
-        # Start from all-ones; index_put fills LC positions with head output.
-        # index_put (non-in-place) returns a new tensor — autograd-safe.
-        scores = torch.ones(E, dtype=h.dtype, device=h.device)
-
-        if lc_idx.numel() > 0:
-            h_i = h[edge_index[0][lc_idx]]                   # (E_lc, hidden_dim)
-            h_j = h[edge_index[1][lc_idx]]                   # (E_lc, hidden_dim)
-            # Directed concat: h_i before h_j — measurement convention is i→j.
-            ea_emb = F.relu(self.edge_proj(edge_attr[lc_idx]))        # (E_lc, hidden_dim)
-            type_oh = F.one_hot(edge_type[lc_idx], _NUM_EDGE_TYPES).float()  # (E_lc, 2)
-
-            head_input = torch.cat([h_i, h_j, ea_emb, type_oh], dim=-1)
-            lc_scores = self.head(head_input).squeeze(-1)             # (E_lc,)
-            scores = scores.index_put((lc_idx,), lc_scores)
-
-        return scores  # (E,): odom positions = 1.0, LC positions ∈ [0, 1]
+        head_input = torch.cat([h_i, h_j, ea_emb, type_oh], dim=-1)
+        scores = self.head(head_input).squeeze(-1)               # (E,) ∈ [0, 1]
+        return scores
