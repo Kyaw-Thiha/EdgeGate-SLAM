@@ -15,6 +15,7 @@ Usage:
     pixi run run-sweep -- --skip-train            # eval only, using existing models
     pixi run run-sweep -- --skip-baselines         # train + learned eval only
     pixi run run-sweep -- --epochs 50 --rates 30,50,70   # custom params
+    pixi run run-sweep -- --train-overrides "train.loss_mode=trajectory"  # custom training params
 """
 
 from __future__ import annotations
@@ -89,6 +90,7 @@ def train_models(
     epochs: int,
     rates: list[int] | None = None,
     seeds: list[int] | None = None,
+    train_overrides: str = "",
 ) -> list[tuple[str, Path]]:
     """Train one model per (outlier_rate, structure, seed) combo. Returns (label, model_dir) pairs."""
     if seeds is None:
@@ -98,6 +100,7 @@ def train_models(
     train_dir = sweep_dir / "train"
     train_dir.mkdir(parents=True, exist_ok=True)
 
+    extra_train = train_overrides.split() if train_overrides else []
     for rate, structure in SWEEP_PARAMS:
         if rates and rate not in rates:
             continue
@@ -111,7 +114,7 @@ def train_models(
                 f"data.outlier_structure={structure}",
                 f"train.seed={seed}",
                 f"hydra.run.dir={out_dir}",
-            ]
+            ] + extra_train
             if _run(cmd):
                 models.append((label, out_dir))
             else:
@@ -314,6 +317,8 @@ def main() -> None:
                         help="ATE threshold for Success Rate in results_ci.csv")
     parser.add_argument("--eval-overrides", type=str, default="",
                         help="extra Hydra overrides for evaluate.py, e.g. 'solver=gtsam solver.kernel=none'")
+    parser.add_argument("--train-overrides", type=str, default="",
+                        help="extra Hydra overrides for train.py, e.g. 'train.loss_mode=trajectory'")
     parser.add_argument("--output", type=str, default=None,
                         help="output directory (default: runs/sweep_<timestamp>)")
     args = parser.parse_args()
@@ -346,7 +351,7 @@ def main() -> None:
                   file=sys.stderr)
             sys.exit(1)
     else:
-        models = train_models(sweep_dir, args.epochs, rates, seeds)
+        models = train_models(sweep_dir, args.epochs, rates, seeds, args.train_overrides)
         if not models:
             print("No models trained successfully.", file=sys.stderr)
             sys.exit(1)
