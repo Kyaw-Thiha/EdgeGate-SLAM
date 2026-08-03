@@ -129,11 +129,11 @@ def evaluate_one_graph(
 
         ate = None
         if not solver_failed and graph.gt_node_poses is not None:
-            gt = torch.from_numpy(graph.gt_node_poses).float()
+            gt = torch.from_numpy(graph.gt_node_poses).float().to(poses.device)
             ate = ate_rmse(poses, gt)
 
-    return {
-        "tp": tp,
+        return {
+            "tp": tp,
         "fp": fp,
         "fn": fn,
         "ate": ate,
