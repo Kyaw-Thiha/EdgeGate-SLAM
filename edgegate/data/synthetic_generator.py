@@ -110,6 +110,12 @@ def generate(
             "Must specify either num_loop_closures or lc_ratio"
         )
 
+    # Safety cap: small grids can't support high LC density.
+    # A Manhattan-world grid with proximity_threshold=2.0 has limited proximal pairs.
+    max_lc = max(1, num_poses // 2)
+    if num_loop_closures > max_lc:
+        num_loop_closures = max_lc
+
     # ── 1. Ground-truth trajectory ────────────────────────────────────────────
     gt_poses = _generate_trajectory(num_poses, segment_length, rng)
 
