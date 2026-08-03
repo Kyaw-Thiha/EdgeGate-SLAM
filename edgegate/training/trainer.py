@@ -56,7 +56,11 @@ def _generate_data(cfg: DictConfig) -> tuple[list, list]:
         "outlier_structure": cfg.data.outlier_structure,
         "segment_length": cfg.data.get("segment_length", 5),
         "proximity_threshold": cfg.data.get("proximity_threshold", 2.0),
+        "info_scale": cfg.data.get("info_scale", 1.0),
     }
+    lc_ratio = cfg.data.get("lc_ratio")
+    if lc_ratio is not None:
+        data_kwargs["lc_ratio"] = lc_ratio
 
     graphs = []
     for i in range(num_graphs):

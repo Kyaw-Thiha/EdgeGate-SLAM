@@ -47,16 +47,18 @@ def _generate_trajectory(
 
 def generate(
     num_poses: int,
-    num_loop_closures: int,
     outlier_rate: float,
     outlier_structure: str,
     seed: int,
+    num_loop_closures: int | None = None,
     segment_length: int = 10,
     proximity_threshold: float = 2.0,
     outlier_distance_threshold: float = 10.0,
     outlier_measurement: str = "gaussian",
     outlier_offset_std: float = 5.0,
     min_gap: int = 5,
+    info_scale: float = 1.0,
+    lc_ratio: int | None = None,
 ) -> PoseGraph:
     """Generate a synthetic SE(2) pose graph with ground-truth inlier labels.
 
@@ -78,10 +80,24 @@ def generate(
         min_gap:                    Minimum pose-ID gap for loop-closure candidates
                                     (prevents near-consecutive IDs from being treated
                                     as loop closures rather than odometry).
+        info_scale:                 Scalar multiplier on the LC_INFO matrix
+                                    (fixed odometry info is never scaled).
+                                    Default 1.0 = no change.
+        lc_ratio:                   Target poses-per-LC ratio. When provided,
+                                    num_loop_closures = max(1, num_poses // lc_ratio).
+                                    Overrides explicit num_loop_closures.
 
     Odometry edges are always labelled inlier (label=1.0).
     """
     rng = np.random.default_rng(seed)
+
+    # Resolve lc_ratio -> num_loop_closures
+    if lc_ratio is not None:
+        num_loop_closures = max(1, num_poses // lc_ratio)
+    elif num_loop_closures is None:
+        raise ValueError(
+            "Must specify either num_loop_closures or lc_ratio"
+        )
 
     # ── 1. Ground-truth trajectory ────────────────────────────────────────────
     gt_poses = _generate_trajectory(num_poses, segment_length, rng)
@@ -135,7 +151,7 @@ def generate(
     # Loop-closure block
     edge_index[:, E_odom:] = lc_edge_index
     edge_measurement[E_odom:] = lc_measurements
-    edge_info[E_odom:] = LC_INFO
+    edge_info[E_odom:] = LC_INFO * info_scale
     edge_type[E_odom:] = 1
     edge_label[E_odom:] = lc_labels
 
