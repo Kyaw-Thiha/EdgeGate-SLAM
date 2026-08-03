@@ -8,4 +8,5 @@ proximity_threshold: 3.0    # max Euclidean distance for inlier LC candidates
 info_scale: 1.0             # scalar multiplier on LC info matrix (odometry fixed)
 include_residuals: false     # include GT-pose residuals as edge features (for residual-guided re-weighting)
 randomize_domain: false      # when true, domain params (num_poses, lc_ratio, info_scale, segment_length) randomized per graph
+max_randomized_poses: null   # if set, caps the randomized num_poses (for GPU memory limits)
 seed: 42

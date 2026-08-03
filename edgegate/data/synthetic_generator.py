@@ -61,6 +61,7 @@ def generate(
     lc_ratio: int | None = None,
     include_residuals: bool = False,
     randomize_domain: bool = False,
+    max_randomized_poses: int | None = None,
 ) -> PoseGraph:
     """Generate a synthetic SE(2) pose graph with ground-truth inlier labels.
 
@@ -98,6 +99,8 @@ def generate(
     # plus segment_length for trajectory-topology variation.
     if randomize_domain:
         num_poses = int(rng.choice([100, 500, 1000, 3500]))
+        if max_randomized_poses is not None:
+            num_poses = min(num_poses, max_randomized_poses)
         segment_length = int(rng.choice([3, 5, 10]))
         lc_ratio = int(rng.choice([1, 5, 15, 40]))
         info_scale = float(10 ** rng.uniform(-1, 2))  # log-uniform [0.1, 100]

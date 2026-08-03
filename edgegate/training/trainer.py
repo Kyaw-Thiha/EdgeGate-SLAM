@@ -59,6 +59,7 @@ def _generate_data(cfg: DictConfig) -> tuple[list, list]:
         "info_scale": cfg.data.get("info_scale", 1.0),
         "include_residuals": cfg.data.get("include_residuals", False),
         "randomize_domain": cfg.data.get("randomize_domain", False),
+        "max_randomized_poses": cfg.data.get("max_randomized_poses", None),
     }
     lc_ratio = cfg.data.get("lc_ratio")
     if lc_ratio is not None:
