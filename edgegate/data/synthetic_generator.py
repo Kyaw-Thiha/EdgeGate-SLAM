@@ -143,7 +143,7 @@ def generate(
 
     # ── 5. Assemble full PoseGraph ────────────────────────────────────────────
     E_odom = num_poses - 1
-    lc_n = num_loop_closures
+    lc_n = lc_edge_index.shape[1]  # actual LC count (may be < requested if grid-capped)
     E = E_odom + lc_n
 
     edge_index       = np.zeros((2, E), dtype=np.int64)
