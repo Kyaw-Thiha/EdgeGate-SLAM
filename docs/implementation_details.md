@@ -116,12 +116,10 @@ Implement as a single shared function
 `pypose_solver.py` and `gtsam_solver.py`, so the two solver adapters can never
 silently diverge on what a given confidence score means.
 
-**Scope (locked, July 2026): this scaling applies to loop-closure edges
-only.** Odometry edges always get `w = 1.0` — passed as a fixed constant, not
-as the GNN's output. See "Loss Function Design" below for why the confidence
-head is never trained or evaluated on odometry edges to begin with; scaling
-by an untrained value would be the same bug at solve time that masking
-avoids at train time. `scale_information` itself doesn't need to know
+**Scope (updated, August 2026): this scaling applies to ALL edges.**
+Odometry edges were previously hardcoded to `w = 1.0` under BCE-only training.
+As of Phase 1, the confidence head runs on all edges and odometry weights are
+supervised via trajectory loss. `scale_information` itself doesn't need to know
 about edge type — callers simply always pass `w=1.0` for odometry rows of the
 weight tensor.
 
@@ -149,15 +147,13 @@ not just the loss:** if the loss never touches odometry edges, the head's
 output for them is never supervised — running it anyway and using that
 unsupervised value to scale `Λ` at solve time would silently corrupt the
 most reliable edges in the graph with an arbitrary (near-init) weight. So
-the confidence head is **only ever invoked on loop-closure edges**, at both
-train and eval time; odometry edges get a hardcoded `confidence = 1.0` that
-never touches the network. This keeps the masked-loss decision and the
-solve-time behavior telling the same story, rather than masking the loss
-while leaving an untrained side-channel live in the solver. See `GNN.md`
-§2.2 for the confidence-head-level version of this decision, and note the
-corresponding one-word correction to `architecture.md`'s Figure 1 caption:
-confidence scales each *loop-closure* edge's information matrix, not "each
-edge's."
+the confidence head is **invoked on all edges, with odometry weights
+supervised only via trajectory loss** (BCE provides no signal for odometry,
+which are always inliers by construction). BCE-only training with the
+all-edge head would produce untrained odometry weights — the trainer
+auto-selects PyPoseSolver when `loss_mode` is `trajectory` or `combined`,
+ensuring end-to-end gradient flow through odometry confidence scores.
+See `GNN.md` §2.2 for the confidence-head-level version of this decision.
 
 ### `trajectory_loss.py` — position-only error, `gt_node_poses` as target
 
