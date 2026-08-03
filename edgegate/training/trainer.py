@@ -193,6 +193,15 @@ def train(cfg: DictConfig) -> None:
 
     model = instantiate(cfg.model)
     solver = instantiate(cfg.solver)
+
+    # Auto-select PyPoseSolver when training with trajectory loss.
+    # Trajectory loss requires differentiable backprop through unrolled
+    # LM steps — only PyPoseSolver keeps the solve as a torch computation
+    # graph. GTSAMSolver would silently produce zero gradients.
+    if cfg.train.loss_mode in ("trajectory", "combined"):
+        from edgegate.solvers.pypose_solver import PyPoseSolver
+        solver = PyPoseSolver()
+
     losses = _build_losses(cfg, solver)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.train.lr)
