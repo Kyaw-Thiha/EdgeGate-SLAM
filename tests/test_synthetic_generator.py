@@ -69,14 +69,14 @@ def test_lc_ratio_overrides_num_loop_closures():
 
 
 def test_lc_ratio_dense():
-    """lc_ratio=2 -> ~1 LC per 2 poses."""
+    """lc_ratio=3 -> ~1 LC per 3 poses, high outlier rate to stay within grid capacity."""
     g = generate(
         num_poses=100, num_loop_closures=10,
-        outlier_rate=30, outlier_structure="random", seed=42,
-        lc_ratio=2,
+        outlier_rate=70, outlier_structure="random", seed=42,
+        lc_ratio=3,
     )
     lc_mask = g.edge_type == 1
-    assert lc_mask.sum() == 100 // 2
+    assert lc_mask.sum() == 100 // 3
 
 
 def test_lc_ratio_40_to_1():

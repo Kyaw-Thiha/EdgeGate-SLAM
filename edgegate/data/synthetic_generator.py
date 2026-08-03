@@ -110,11 +110,14 @@ def generate(
             "Must specify either num_loop_closures or lc_ratio"
         )
 
-    # Safety cap: small grids can't support high LC density.
-    # A Manhattan-world grid with proximity_threshold=2.0 has limited proximal pairs.
-    max_lc = max(1, num_poses // 2)
-    if num_loop_closures > max_lc:
-        num_loop_closures = max_lc
+    # Safety cap: small Manhattan-world grids have limited proximal pair count
+    # (~10-20% of num_poses). Without enough inlier candidates, injection raises
+    # ValueError. Cap LCs so num_inliers cannot exceed the grid's capacity.
+    if num_loop_closures > 1 and outlier_rate < 100:
+        proximal_budget = max(1, int(num_poses * 0.15))
+        max_lc = max(1, int((proximal_budget - 1) / (1 - outlier_rate / 100)))
+        if num_loop_closures > max_lc:
+            num_loop_closures = max_lc
 
     # ── 1. Ground-truth trajectory ────────────────────────────────────────────
     gt_poses = _generate_trajectory(num_poses, segment_length, rng)
