@@ -214,11 +214,11 @@ def _load_training_state(
     model.load_state_dict(state["model_state"])
     optimizer.load_state_dict(state["optimizer_state"])
     # Restore RNG so resumed training is deterministic.
-    # If the RNG state fails to deserialize (e.g. device mismatch), skip it —
-    # the model and optimizer state are what matter; RNG state is secondary.
+    # RNG state must be on CPU — map_location may have moved it to device.
     if "rng_states" in state:
         try:
-            torch.random.set_rng_state(state["rng_states"]["torch"])
+            rng_torch = state["rng_states"]["torch"]
+            torch.random.set_rng_state(rng_torch.cpu())
             np.random.set_state(state["rng_states"]["numpy"])
         except (TypeError, RuntimeError):
             pass
