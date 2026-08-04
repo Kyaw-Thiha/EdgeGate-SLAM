@@ -6,6 +6,7 @@ import torch
 from edgegate.data.graph_builder import to_pyg
 from edgegate.data.types import PoseGraph
 from edgegate.metrics.ate_rmse import ate_rmse
+from edgegate.metrics.rotation_error import rotation_error
 from edgegate.solvers.base import Solver
 
 
@@ -73,8 +74,10 @@ def evaluate_one_graph(
     """
     model.eval()
     with torch.no_grad():
+        t_gnn = time.monotonic()
         data = to_pyg(graph).to(_model_device(model))
         conf = model(data)
+        gnn_time_s = time.monotonic() - t_gnn
 
         if hasattr(data, "edge_label") and data.edge_label is not None:
             lc_mask = (data.edge_type == 1) & (data.edge_label >= 0)
@@ -128,15 +131,18 @@ def evaluate_one_graph(
         poses = last_poses
 
         ate = None
+        rot_err = None
         if not solver_failed and graph.gt_node_poses is not None:
             gt = torch.from_numpy(graph.gt_node_poses).float().to(poses.device)
             ate = ate_rmse(poses, gt)
+            rot_err = rotation_error(poses, gt)
 
-        return {
-            "tp": tp,
+    return {
+        "tp": tp,
         "fp": fp,
         "fn": fn,
         "ate": ate,
+        "rotation_error": rot_err,
         "poses": poses.cpu().numpy(),
         "confidence": conf.cpu().numpy(),
         "lc_confidence": lc_confidence,
@@ -145,6 +151,7 @@ def evaluate_one_graph(
         "num_iterations": iters,
         "converged": converged,
         "solve_time_s": total_solve_time,
+        "gnn_time_s": gnn_time_s,
         "solver_failed": solver_failed,
         "residual_iterations": residual_iterations,
     }
@@ -188,12 +195,15 @@ def evaluate_one_graph_classical(
             poses = torch.from_numpy(graph.node_init).float()
 
     ate = None
+    rot_err = None
     if not solver_failed and graph.gt_node_poses is not None:
         gt = torch.from_numpy(graph.gt_node_poses).float()
         ate = ate_rmse(poses, gt)
+        rot_err = rotation_error(poses, gt)
 
     return {
         "ate": ate,
+        "rotation_error": rot_err,
         "poses": poses.cpu().numpy(),
         "confidence": edge_weights.cpu().numpy(),
         "lc_confidence": lc_confidence,
@@ -344,8 +354,10 @@ def evaluate_one_graph_hybrid(
         if graph.gt_node_poses is not None:
             gt = torch.from_numpy(graph.gt_node_poses).float()
             pass1_ate = ate_rmse(pass1_poses, gt)
+            pass1_rot = rotation_error(pass1_poses, gt)
         else:
             pass1_ate = None
+            pass1_rot = None
 
         warm_graph = PoseGraph(
             node_init=pass1_poses.cpu().numpy(),
@@ -367,13 +379,16 @@ def evaluate_one_graph_hybrid(
         solve_time = time.monotonic() - t0
 
     ate = None
+    rot_err = None
     if graph.gt_node_poses is not None:
         gt = torch.from_numpy(graph.gt_node_poses).float()
         ate = ate_rmse(poses, gt)
+        rot_err = rotation_error(poses, gt)
 
     result = {
         "tp": tp, "fp": fp, "fn": fn,
         "ate": ate,
+        "rotation_error": rot_err,
         "poses": poses.cpu().numpy(),
         "confidence": conf.cpu().numpy(),
         "final_cost": float(cost) if cost is not None else None,
@@ -392,6 +407,7 @@ def evaluate_one_graph_hybrid(
     if hybrid_mode == "two_pass":
         result.update({
             "hybrid_pass1_ate": pass1_ate,
+            "hybrid_pass1_rotation_error": pass1_rot,
             "hybrid_pass1_cost": pass1_cost,
             "hybrid_pass1_iters": pass1_iters,
             "hybrid_pass1_converged": pass1_converged,

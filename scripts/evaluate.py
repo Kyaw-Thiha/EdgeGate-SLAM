@@ -450,11 +450,82 @@ def _run_aggregate(cfg: DictConfig) -> None:
 def main(cfg: DictConfig) -> None:
     mode = cfg.eval_mode.get("mode", "evaluate")
     if mode == "evaluate":
-        _run_evaluate(cfg)
+        seeds_str = cfg.eval_mode.get("test_seeds")
+        if seeds_str is not None:
+            seeds = [int(s) for s in seeds_str.split(",")]
+            _run_evaluate_multi_seed(cfg, seeds)
+        else:
+            _run_evaluate(cfg)
     elif mode == "aggregate":
         _run_aggregate(cfg)
     else:
         raise ValueError(f"Unknown eval mode: {mode}")
+
+
+def _run_evaluate_multi_seed(cfg: DictConfig, seeds: list[int]) -> None:
+    from omegaconf import OmegaConf
+
+    all_summaries = []
+    for seed in seeds:
+        cfg_copy = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+        cfg_copy.eval_mode.test_seed = seed
+        OmegaConf.update(cfg, "eval_mode.test_seed", seed, force_add=True)
+        print(f"\n--- Multi-seed eval: seed={seed} ---")
+        try:
+            _run_evaluate(cfg)
+            # Read the summary.json that _run_evaluate just wrote
+            out_dir = _get_output_dir()
+            summary_path = Path(out_dir) / "summary.json"
+            if summary_path.exists():
+                all_summaries.append((seed, json.loads(summary_path.read_text())))
+        except Exception as e:
+            print(f"  FAILED seed {seed}: {e}")
+
+    if len(all_summaries) < 2:
+        return
+
+    _write_multi_seed_summary(all_summaries)
+
+
+def _get_output_dir() -> str:
+    try:
+        from hydra.core.hydra_config import HydraConfig
+        return HydraConfig.get().runtime.output_dir
+    except Exception:
+        return "."
+
+
+def _write_multi_seed_summary(all_summaries: list[tuple[int, dict]]) -> None:
+    import numpy as np
+
+    NUMERIC = [
+        "f1", "precision", "recall", "ate", "rotation_error",
+        "final_cost", "solve_time_s", "gnn_time_s",
+        "num_iterations_mean", "num_graphs",
+    ]
+    ci: dict = {"n_seeds": len(all_summaries), "per_seed": []}
+
+    for seed, s in all_summaries:
+        seed_entry = {"seed": seed}
+        for key in NUMERIC:
+            if key in s and s[key] is not None:
+                seed_entry[key] = s[key]
+        for key in ["converged_count", "failed_count", "tp", "fp", "fn"]:
+            if key in s:
+                seed_entry[key] = s[key]
+        ci["per_seed"].append(seed_entry)
+
+    for key in NUMERIC:
+        vals = [s[1].get(key) for s in all_summaries if s[1].get(key) is not None]
+        if vals:
+            arr = np.array(vals, dtype=float)
+            ci[f"{key}_mean"] = float(arr.mean())
+            ci[f"{key}_std"] = float(arr.std())
+
+    out_dir = _get_output_dir()
+    with open(Path(out_dir) / "summary.json", "w") as f:
+        json.dump(ci, f, indent=2)
+    print(f"\nMulti-seed CI ({len(all_summaries)} seeds) → {out_dir}/summary.json")
 
 
 if __name__ == "__main__":
