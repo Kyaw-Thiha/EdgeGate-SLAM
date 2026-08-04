@@ -455,7 +455,7 @@ def main(cfg: DictConfig) -> None:
             if isinstance(seeds_str, (list, tuple)):
                 seeds = [int(s) for s in seeds_str]
             else:
-                seeds = [int(s) for s in str(seeds_str).split(",")]
+                seeds = [int(s) for s in str(seeds_str).strip("[]").split(",")]
             _run_evaluate_multi_seed(cfg, seeds)
         else:
             _run_evaluate(cfg)
