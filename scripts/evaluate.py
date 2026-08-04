@@ -452,7 +452,10 @@ def main(cfg: DictConfig) -> None:
     if mode == "evaluate":
         seeds_str = cfg.eval_mode.get("test_seeds")
         if seeds_str is not None:
-            seeds = [int(s) for s in seeds_str.split(",")]
+            if isinstance(seeds_str, (list, tuple)):
+                seeds = [int(s) for s in seeds_str]
+            else:
+                seeds = [int(s) for s in str(seeds_str).split(",")]
             _run_evaluate_multi_seed(cfg, seeds)
         else:
             _run_evaluate(cfg)
