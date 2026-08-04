@@ -213,10 +213,15 @@ def _load_training_state(
     state = torch.load(path, map_location=device, weights_only=False)
     model.load_state_dict(state["model_state"])
     optimizer.load_state_dict(state["optimizer_state"])
-    # Restore RNG so resumed training is deterministic
+    # Restore RNG so resumed training is deterministic.
+    # If the RNG state fails to deserialize (e.g. device mismatch), skip it —
+    # the model and optimizer state are what matter; RNG state is secondary.
     if "rng_states" in state:
-        torch.random.set_rng_state(state["rng_states"]["torch"])
-        np.random.set_state(state["rng_states"]["numpy"])
+        try:
+            torch.random.set_rng_state(state["rng_states"]["torch"])
+            np.random.set_state(state["rng_states"]["numpy"])
+        except (TypeError, RuntimeError):
+            pass
     return (
         state["epoch"],
         state["best_f1"],
