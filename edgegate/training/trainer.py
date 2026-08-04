@@ -275,7 +275,13 @@ def train(cfg: DictConfig) -> None:
     metrics_log: list[dict] = []
 
     resume_path = cfg.train.get("resume_from")
-    if resume_path is not None:
+    if resume_path:
+        from pathlib import Path
+        from hydra.utils import get_original_cwd
+        p = Path(resume_path)
+        if not p.is_absolute():
+            p = Path(get_original_cwd()) / p
+        resume_path = str(p)
         start_epoch, best_f1, metrics_log, saved_cfg = _load_training_state(
             resume_path, model, optimizer, device
         )
