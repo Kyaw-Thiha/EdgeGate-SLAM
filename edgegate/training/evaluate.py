@@ -232,6 +232,8 @@ def accumulate_metrics(results: list[dict]) -> dict:
     fn = sum(r.get("fn", 0) for r in results)
 
     ate_values = [r["ate"] for r in results if r.get("ate") is not None]
+    rot_values = [r["rotation_error"] for r in results if r.get("rotation_error") is not None]
+    gnn_time_values = [r["gnn_time_s"] for r in results if r.get("gnn_time_s") is not None]
     cost_values = [r["final_cost"] for r in results if r.get("final_cost") is not None]
     time_values = [r["solve_time_s"] for r in results if r.get("solve_time_s") is not None]
     iter_values = [
@@ -260,8 +262,10 @@ def accumulate_metrics(results: list[dict]) -> dict:
         "fp": fp,
         "fn": fn,
         "ate": sum(ate_values) / len(ate_values) if ate_values else None,
+        "rotation_error": sum(rot_values) / len(rot_values) if rot_values else None,
         "final_cost": sum(cost_values) / len(cost_values) if cost_values else None,
         "solve_time_s": sum(time_values) / len(time_values) if time_values else None,
+        "gnn_time_s": sum(gnn_time_values) / len(gnn_time_values) if gnn_time_values else None,
         "num_iterations_mean": sum(iter_values) / len(iter_values) if iter_values else None,
         "converged_count": converged_count,
         "failed_count": failed_count,
