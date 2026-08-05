@@ -45,6 +45,13 @@ def _init_wandb(cfg: DictConfig) -> None:
 
 
 def _generate_data(cfg: DictConfig) -> tuple[list, list]:
+    import pickle
+
+    cache_path = "generated_graphs.pkl"
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+
     num_graphs = cfg.train.get("num_graphs", 100)
     num_val = max(1, int(num_graphs * cfg.train.val_split))
     num_train = num_graphs - num_val
@@ -77,6 +84,10 @@ def _generate_data(cfg: DictConfig) -> tuple[list, list]:
 
     train_graphs = [graphs[i] for i in train_idx]
     val_graphs = [graphs[i] for i in val_idx]
+
+    with open(cache_path, "wb") as f:
+        import pickle
+        pickle.dump((train_graphs, val_graphs), f)
     return train_graphs, val_graphs
 
 
